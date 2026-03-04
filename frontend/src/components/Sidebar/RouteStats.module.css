@@ -1,0 +1,41 @@
+.stats {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon {
+  font-size: 15px;
+}
+
+.value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.loading {
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.error {
+  font-size: 12px;
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}

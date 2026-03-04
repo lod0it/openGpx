@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "WebSearch",
+      "Bash(npm create:*)",
+      "Bash(grep:*)",
+      "Bash(tail:*)"
+    ]
+  }
+}

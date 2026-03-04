@@ -1,3 +1,6 @@
+# Claude Code
+.claude/
+
 # Python
 backend/.venv/
 backend/__pycache__/

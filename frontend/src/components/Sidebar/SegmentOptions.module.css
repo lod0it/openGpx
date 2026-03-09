@@ -1,0 +1,43 @@
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 8px 10px;
+  margin-bottom: 5px;
+}
+
+.adventureRow {
+  margin-bottom: 6px;
+}
+
+.customLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.filterRow input,
+.customLabel input {
+  cursor: pointer;
+  accent-color: var(--accent);
+}

@@ -13,6 +13,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { useRouteStore } from '../../store/useRouteStore'
+import { useT } from '../../i18n/useT'
 import { WaypointItem } from './WaypointItem'
 import styles from './WaypointList.module.css'
 
@@ -20,6 +21,7 @@ export function WaypointList() {
   const waypoints = useRouteStore((s) => s.waypoints)
   const reorderWaypoints = useRouteStore((s) => s.reorderWaypoints)
   const clearAll = useRouteStore((s) => s.clearAll)
+  const t = useT()
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -40,7 +42,7 @@ export function WaypointList() {
   if (waypoints.length === 0) {
     return (
       <div className={styles.empty}>
-        Click on the map to add waypoints
+        {t('waypoints.empty')}
       </div>
     )
   }
@@ -48,13 +50,13 @@ export function WaypointList() {
   return (
     <div className={styles.wrapper}>
       <div className={styles.header}>
-        <span className={styles.count}>{waypoints.length} point{waypoints.length !== 1 ? 's' : ''}</span>
-        <button className={styles.clearBtn} onClick={clearAll}>Clear all</button>
+        <span className={styles.count}>{waypoints.length} {t('waypoints.count')}</span>
+        <button className={styles.clearBtn} onClick={clearAll}>{t('waypoints.clear')}</button>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={waypoints.map((w) => w.id)} strategy={verticalListSortingStrategy}>
           {waypoints.map((wp, index) => (
-            <WaypointItem key={wp.id} waypoint={wp} index={index} />
+            <WaypointItem key={wp.id} waypoint={wp} index={index} isLast={index === waypoints.length - 1} />
           ))}
         </SortableContext>
       </DndContext>

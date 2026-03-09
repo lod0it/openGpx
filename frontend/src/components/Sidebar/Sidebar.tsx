@@ -1,7 +1,10 @@
 import { SearchBar } from './SearchBar'
-import { ProfileSelector } from './ProfileSelector'
+import { AdventureSlider } from './AdventureSlider'
+import { GlobalFiltersPanel } from './GlobalFilters'
 import { WaypointList } from './WaypointList'
 import { RouteStats } from './RouteStats'
+import { ElevationChart } from './ElevationChart'
+import { RoadTypeBreakdown } from './RoadTypeBreakdown'
 import { ExportButtons } from './ExportButtons'
 import styles from './Sidebar.module.css'
 
@@ -9,13 +12,17 @@ export function Sidebar() {
   return (
     <div className={styles.sidebar}>
       <div className={styles.logo}>
-        <span>🏍️</span>
-        <span>open-gpx</span>
+        open-gpx
       </div>
       <SearchBar />
-      <ProfileSelector />
+      <AdventureSlider />
+      <GlobalFiltersPanel />
       <RouteStats />
-      <WaypointList />
+      <div className={styles.scrollArea}>
+        <WaypointList />
+        <ElevationChart />
+        <RoadTypeBreakdown />
+      </div>
       <ExportButtons />
     </div>
   )

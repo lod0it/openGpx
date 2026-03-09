@@ -4,7 +4,9 @@ import { fetchRoute } from '../api/routing'
 
 export function useRouteCalculation() {
   const waypoints = useRouteStore((s) => s.waypoints)
-  const profile = useRouteStore((s) => s.profile)
+  const adventure = useRouteStore((s) => s.adventure)
+  const segmentOptions = useRouteStore((s) => s.segmentOptions)
+  const globalFilters = useRouteStore((s) => s.globalFilters)
   const setRoute = useRouteStore((s) => s.setRoute)
   const setLoading = useRouteStore((s) => s.setLoading)
   const setError = useRouteStore((s) => s.setError)
@@ -18,9 +20,17 @@ export function useRouteCalculation() {
     debounceRef.current = setTimeout(async () => {
       setLoading(true)
       try {
-        const result = await fetchRoute(waypoints, profile)
+        const result = await fetchRoute(waypoints, adventure, segmentOptions, globalFilters)
         if (result) {
-          setRoute(result.geometry as [number, number][], result.distance_m, result.duration_s)
+          setRoute({
+            geometry: result.geometry as [number, number][],
+            distanceM: result.distance_m,
+            durationS: result.duration_s,
+            elevation: result.elevation,
+            maxElevation: result.max_elevation,
+            minElevation: result.min_elevation,
+            roadStats: result.road_stats,
+          })
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Routing failed')
@@ -30,5 +40,5 @@ export function useRouteCalculation() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [waypoints, profile, setRoute, setLoading, setError])
+  }, [waypoints, adventure, segmentOptions, globalFilters, setRoute, setLoading, setError])
 }

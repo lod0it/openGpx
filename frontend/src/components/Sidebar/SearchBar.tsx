@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouteStore } from '../../store/useRouteStore'
 import { useGeocoding } from '../../hooks/useGeocoding'
+import { useT } from '../../i18n/useT'
 import type { GeocodeResult } from '../../types'
 import styles from './SearchBar.module.css'
 
@@ -10,6 +11,7 @@ export function SearchBar() {
   const addWaypoint = useRouteStore((s) => s.addWaypoint)
   const { results, isSearching } = useGeocoding(query)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const t = useT()
 
   useEffect(() => {
     setOpen(results.length > 0)
@@ -36,7 +38,7 @@ export function SearchBar() {
       <input
         className={styles.input}
         type="text"
-        placeholder="Search location..."
+        placeholder={t('search.placeholder')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}

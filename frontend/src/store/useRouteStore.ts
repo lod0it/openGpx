@@ -1,14 +1,21 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import { arrayMove } from '@dnd-kit/sortable'
-import type { Waypoint, RouteProfile } from '../types'
+import type { Waypoint, SegmentOptions, ElevationPoint, RoadStats, GlobalFilters } from '../types'
+import { defaultGlobalFilters } from '../types'
 
 interface RouteStore {
   waypoints: Waypoint[]
   geometry: [number, number][]
   distanceM: number | null
   durationS: number | null
-  profile: RouteProfile
+  adventure: number
+  segmentOptions: Record<string, SegmentOptions>
+  globalFilters: GlobalFilters
+  elevation: ElevationPoint[]
+  maxElevation: number | null
+  minElevation: number | null
+  roadStats: RoadStats | null
   isLoading: boolean
   error: string | null
 
@@ -16,8 +23,18 @@ interface RouteStore {
   removeWaypoint: (id: string) => void
   reorderWaypoints: (oldIndex: number, newIndex: number) => void
   updateWaypointPosition: (id: string, lat: number, lng: number) => void
-  setProfile: (profile: RouteProfile) => void
-  setRoute: (geometry: [number, number][], distanceM: number, durationS: number) => void
+  setAdventure: (adventure: number) => void
+  setSegmentOption: (waypointId: string, opts: SegmentOptions) => void
+  setGlobalFilter: (patch: Partial<GlobalFilters>) => void
+  setRoute: (result: {
+    geometry: [number, number][]
+    distanceM: number
+    durationS: number
+    elevation: ElevationPoint[]
+    maxElevation: number | null
+    minElevation: number | null
+    roadStats: RoadStats
+  }) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   clearAll: () => void
@@ -28,7 +45,13 @@ export const useRouteStore = create<RouteStore>((set) => ({
   geometry: [],
   distanceM: null,
   durationS: null,
-  profile: 'standard',
+  adventure: 0,
+  segmentOptions: {},
+  globalFilters: defaultGlobalFilters,
+  elevation: [],
+  maxElevation: null,
+  minElevation: null,
+  roadStats: null,
   isLoading: false,
   error: null,
 
@@ -39,12 +62,20 @@ export const useRouteStore = create<RouteStore>((set) => ({
     })),
 
   removeWaypoint: (id) =>
-    set((state) => ({
-      waypoints: state.waypoints.filter((w) => w.id !== id),
-      geometry: state.waypoints.filter((w) => w.id !== id).length < 2 ? [] : state.geometry,
-      distanceM: state.waypoints.filter((w) => w.id !== id).length < 2 ? null : state.distanceM,
-      durationS: state.waypoints.filter((w) => w.id !== id).length < 2 ? null : state.durationS,
-    })),
+    set((state) => {
+      const filtered = state.waypoints.filter((w) => w.id !== id)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _removed, ...restOpts } = state.segmentOptions
+      return {
+        waypoints: filtered,
+        segmentOptions: restOpts,
+        geometry: filtered.length < 2 ? [] : state.geometry,
+        distanceM: filtered.length < 2 ? null : state.distanceM,
+        durationS: filtered.length < 2 ? null : state.durationS,
+        elevation: filtered.length < 2 ? [] : state.elevation,
+        roadStats: filtered.length < 2 ? null : state.roadStats,
+      }
+    }),
 
   reorderWaypoints: (oldIndex, newIndex) =>
     set((state) => ({
@@ -56,10 +87,20 @@ export const useRouteStore = create<RouteStore>((set) => ({
       waypoints: state.waypoints.map((w) => (w.id === id ? { ...w, lat, lng } : w)),
     })),
 
-  setProfile: (profile) => set({ profile }),
+  setAdventure: (adventure) => set({ adventure }),
 
-  setRoute: (geometry, distanceM, durationS) =>
-    set({ geometry, distanceM, durationS, isLoading: false, error: null }),
+  setSegmentOption: (waypointId, opts) =>
+    set((state) => ({
+      segmentOptions: { ...state.segmentOptions, [waypointId]: opts },
+    })),
+
+  setGlobalFilter: (patch) =>
+    set((state) => ({
+      globalFilters: { ...state.globalFilters, ...patch },
+    })),
+
+  setRoute: ({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats }) =>
+    set({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, isLoading: false, error: null }),
 
   setLoading: (isLoading) => set({ isLoading }),
 
@@ -71,6 +112,11 @@ export const useRouteStore = create<RouteStore>((set) => ({
       geometry: [],
       distanceM: null,
       durationS: null,
+      segmentOptions: {},
+      elevation: [],
+      maxElevation: null,
+      minElevation: null,
+      roadStats: null,
       error: null,
     }),
 }))

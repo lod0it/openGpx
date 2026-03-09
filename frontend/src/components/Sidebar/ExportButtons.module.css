@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: 8px;
   padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   margin-top: auto;
 }
 
@@ -12,7 +12,7 @@
   padding: 10px;
   border: none;
   border-radius: 7px;
-  background: #2563eb;
+  background: var(--accent);
   color: white;
   font-size: 14px;
   font-weight: 500;
@@ -30,11 +30,11 @@
 }
 
 .btn.secondary {
-  background: #f3f4f6;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--track-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
 }
 
 .btn.secondary:hover:not(:disabled) {
-  background: #e5e7eb;
+  background: var(--border);
 }

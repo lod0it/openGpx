@@ -11,24 +11,24 @@
   align-items: center;
   gap: 2px;
   padding: 8px 4px;
-  border: 1.5px solid #d1d5db;
+  border: 1.5px solid var(--border-light);
   border-radius: 8px;
-  background: white;
+  background: var(--bg-widget);
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .btn:hover {
-  border-color: #2563eb;
-  color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .btn.active {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: var(--accent);
+  background: var(--accent);
   color: white;
 }
 

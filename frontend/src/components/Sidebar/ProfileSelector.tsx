@@ -2,10 +2,10 @@ import { useRouteStore } from '../../store/useRouteStore'
 import type { RouteProfile } from '../../types'
 import styles from './ProfileSelector.module.css'
 
-const PROFILES: { value: RouteProfile; label: string; icon: string }[] = [
-  { value: 'standard', label: 'Standard', icon: '🛣️' },
-  { value: 'avoid_tolls', label: 'No Tolls', icon: '🚫' },
-  { value: 'scenic', label: 'Scenic', icon: '🏔️' },
+const PROFILES: { value: RouteProfile; label: string }[] = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'avoid_tolls', label: 'No Tolls' },
+  { value: 'scenic', label: 'Scenic' },
 ]
 
 export function ProfileSelector() {
@@ -19,10 +19,8 @@ export function ProfileSelector() {
           key={p.value}
           className={`${styles.btn} ${profile === p.value ? styles.active : ''}`}
           onClick={() => setProfile(p.value)}
-          title={p.label}
         >
-          <span>{p.icon}</span>
-          <span>{p.label}</span>
+          {p.label}
         </button>
       ))}
     </div>

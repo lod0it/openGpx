@@ -2,7 +2,7 @@
   display: flex;
   gap: 12px;
   padding: 10px 12px;
-  background: #eff6ff;
+  background: var(--stats-bg);
   border-radius: 8px;
   margin-bottom: 12px;
 }
@@ -13,19 +13,23 @@
   gap: 6px;
 }
 
-.icon {
-  font-size: 15px;
+.label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
 }
 
 .value {
   font-size: 14px;
   font-weight: 600;
-  color: #1e40af;
+  color: var(--accent-dark);
 }
 
 .loading {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-secondary);
   text-align: center;
   padding: 8px;
   margin-bottom: 8px;

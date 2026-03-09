@@ -38,3 +38,8 @@ frontend/.vite/
 # Logs
 *.log
 npm-debug.log*
+
+# GraphHopper — binari e dati OSM (troppo grandi per git, da scaricare manualmente)
+graphhopper/*.jar
+graphhopper/*.pbf
+graphhopper/italy-gh/

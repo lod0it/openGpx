@@ -1,0 +1,24 @@
+graphhopper:
+  datareader.file: italy-latest.osm.pbf
+  graph.location: italy-gh
+
+  profiles:
+    - name: motorcycle
+      custom_model_files: [car.json]
+
+  profiles_ch: []
+
+  graph.encoded_values: car_access, car_average_speed, toll, road_class, road_environment, curvature, surface, max_speed
+
+  elevation.provider: srtm
+  elevation.cache_dir: elevation-cache
+
+  import.osm.ignored_highways: footway, cycleway, path, pedestrian, steps
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+  admin_connectors:
+    - type: http
+      port: 8990

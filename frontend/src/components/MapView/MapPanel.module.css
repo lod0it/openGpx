@@ -1,0 +1,93 @@
+.panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: row-reverse;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toggle {
+  pointer-events: all;
+  position: relative;
+  width: 28px;
+  height: 100%;
+  background: var(--bg-sidebar);
+  border: none;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-secondary);
+  transition: background 0.15s;
+}
+
+.toggle:hover {
+  background: var(--bg-widget);
+  color: var(--text-primary);
+}
+
+.toggleLabel {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+}
+
+.content {
+  pointer-events: all;
+  width: 0;
+  overflow: hidden;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transition: width 0.25s ease;
+}
+
+.open .content {
+  width: 200px;
+}
+
+.section {
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 4px 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.row input[type="radio"],
+.row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}

@@ -3,16 +3,22 @@
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-widget);
+  border: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 5px;
   font-size: 13px;
 }
 
+.itemExpanded {
+  border-radius: 6px 6px 0 0;
+  border-bottom-color: var(--panel-border);
+  margin-bottom: 0;
+}
+
 .handle {
   cursor: grab;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
@@ -23,7 +29,7 @@
 }
 
 .index {
-  background: #2563eb;
+  background: var(--accent);
   color: white;
   border-radius: 50%;
   width: 20px;
@@ -41,13 +47,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #374151;
+  color: var(--text-primary);
+}
+
+.optBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.optBtn:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.optBtnActive {
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .deleteBtn {
   background: none;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 12px;
   padding: 2px 4px;

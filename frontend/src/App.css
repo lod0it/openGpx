@@ -10,3 +10,11 @@
   width: 100vw;
   overflow: hidden;
 }
+
+.map-wrapper {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}

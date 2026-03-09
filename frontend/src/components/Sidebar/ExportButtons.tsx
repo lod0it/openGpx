@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useRouteStore } from '../../store/useRouteStore'
+import { useT } from '../../i18n/useT'
 import { downloadGpx } from '../../api/export'
 import styles from './ExportButtons.module.css'
 
@@ -7,6 +8,7 @@ export function ExportButtons() {
   const waypoints = useRouteStore((s) => s.waypoints)
   const geometry = useRouteStore((s) => s.geometry)
   const [exporting, setExporting] = useState<'track' | 'route' | null>(null)
+  const t = useT()
 
   const canExport = waypoints.length >= 2
 
@@ -32,7 +34,7 @@ export function ExportButtons() {
         disabled={exporting !== null || geometry.length === 0}
         title="Detailed GPX with full route geometry — best for GPS devices"
       >
-        {exporting === 'track' ? '…' : '⬇'} GPX Track
+        {exporting === 'track' ? '…' : '⬇'} {t('export.track')}
       </button>
       <button
         className={`${styles.btn} ${styles.secondary}`}
@@ -40,7 +42,7 @@ export function ExportButtons() {
         disabled={exporting !== null}
         title="Waypoints-only GPX — smaller file"
       >
-        {exporting === 'route' ? '…' : '⬇'} GPX Route
+        {exporting === 'route' ? '…' : '⬇'} {t('export.route')}
       </button>
     </div>
   )

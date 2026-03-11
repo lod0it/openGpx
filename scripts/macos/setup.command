@@ -20,4 +20,4 @@ else
     PYTHON="python3"
 fi
 
-"$PYTHON" setup.py "$@"
+"$PYTHON" scripts/setup.py "$@"

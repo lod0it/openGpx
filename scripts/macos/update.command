@@ -24,4 +24,4 @@ else
     PYTHON="$LAUNCHER_VENV/bin/python"
 fi
 
-"$PYTHON" update.py "$@"
+"$PYTHON" scripts/update.py "$@"

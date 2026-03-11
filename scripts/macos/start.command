@@ -20,4 +20,4 @@ else
     PYTHON="$LAUNCHER_VENV/bin/python"
 fi
 
-"$PYTHON" start.py "$@"
+"$PYTHON" scripts/start.py "$@"

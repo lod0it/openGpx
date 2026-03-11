@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import urllib.request
@@ -101,6 +102,35 @@ def sha256_file(path: Path) -> str:
 
 # ── Download ─────────────────────────────────────────────────────────────────
 
+def _make_ssl_context() -> ssl.SSLContext:
+    """Crea un SSL context cercando i certificati in ordine di preferenza."""
+    # 1. certifi (se installato)
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    # 2. Certificati di sistema macOS via /etc/ssl o bundle Homebrew/Python.org
+    for ca_path in (
+        "/etc/ssl/cert.pem",
+        "/usr/local/etc/openssl@3/cert.pem",
+        "/opt/homebrew/etc/openssl@3/cert.pem",
+    ):
+        if os.path.exists(ca_path):
+            return ssl.create_default_context(cafile=ca_path)
+    # 3. Fallback: contesto di default (funziona su Linux e Windows)
+    return ssl.create_default_context()
+
+
+def _urlretrieve(url: str, dest: Path, reporthook=None) -> None:
+    """Wrapper di urlretrieve che installa un opener con SSL corretto."""
+    ctx = _make_ssl_context()
+    https_handler = urllib.request.HTTPSHandler(context=ctx)
+    opener = urllib.request.build_opener(https_handler)
+    urllib.request.install_opener(opener)
+    urllib.request.urlretrieve(url, dest, reporthook)
+
+
 def download_file(url: str, dest: Path) -> bool:
     """Scarica url in dest. Usa file .part durante il download."""
     part = dest.with_suffix(dest.suffix + ".part")
@@ -123,7 +153,7 @@ def download_file(url: str, dest: Path) -> bool:
                     else:
                         progress.update(task, advance=block_size)
 
-                urllib.request.urlretrieve(url, part, _reporthook)
+                _urlretrieve(url, part, _reporthook)
         else:
             def _reporthook(count: int, block_size: int, total_size: int) -> None:
                 downloaded = count * block_size
@@ -133,7 +163,7 @@ def download_file(url: str, dest: Path) -> bool:
                     mb_tot = total_size / 1_048_576
                     print(f"\r  {mb_down:.1f} MB / {mb_tot:.1f} MB ({pct}%)   ", end="", flush=True)
 
-            urllib.request.urlretrieve(url, part, _reporthook)
+            _urlretrieve(url, part, _reporthook)
             print()
 
         part.rename(dest)

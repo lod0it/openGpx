@@ -275,6 +275,18 @@ def _reader(key: str, proc: subprocess.Popen) -> None:
             warn(f"{key} si è fermato inaspettatamente")
 
 
+# ── JVM heap size ─────────────────────────────────────────────────────────────
+
+def _jvm_xmx() -> str:
+    """Ritorna un flag -Xmx appropriato basato sulla RAM disponibile."""
+    try:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        mb = max(2048, min(int(total * 0.60 / 1024 / 1024), 8192))
+        return f"{mb}m"
+    except Exception:
+        return "4g"
+
+
 # ── Avvio processi ────────────────────────────────────────────────────────────
 
 def start_graphhopper() -> subprocess.Popen | None:
@@ -298,7 +310,8 @@ def start_graphhopper() -> subprocess.Popen | None:
         else:
             info("GH: prima build — costruzione grafo in corso (potrebbe richiedere minuti)...")
 
-    cmd = ["java", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
+    xmx = _jvm_xmx()
+    cmd = ["java", f"-Xmx{xmx}", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
     try:
         proc = subprocess.Popen(
             cmd,

@@ -447,6 +447,18 @@ def download_elevation(state: dict) -> dict:
     return state
 
 
+# ── JVM heap size ─────────────────────────────────────────────────────────────
+
+def _jvm_xmx() -> str:
+    """Ritorna un flag -Xmx appropriato basato sulla RAM disponibile."""
+    try:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        mb = max(2048, min(int(total * 0.60 / 1024 / 1024), 8192))
+        return f"{mb}m"
+    except Exception:
+        return "4g"
+
+
 # ── Prebuild grafo GraphHopper ───────────────────────────────────────────────
 
 def build_gh_graph(state: dict) -> dict:
@@ -495,7 +507,9 @@ def build_gh_graph(state: dict) -> dict:
     last_log_line = [""]
     done_event = threading.Event()
 
-    cmd = ["java", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
+    xmx = _jvm_xmx()
+    _info(f"Avvio GraphHopper con -Xmx{xmx}...")
+    cmd = ["java", f"-Xmx{xmx}", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
     try:
         proc = subprocess.Popen(
             cmd,
@@ -507,12 +521,19 @@ def build_gh_graph(state: dict) -> dict:
         _fail("Java non trovato — installa Java 11+ e riesegui setup")
         return state
 
+    error_lines: list[str] = []
+
     def _read_gh_output() -> None:
         for raw in proc.stdout:  # type: ignore[union-attr]
             line = raw.decode("utf-8", errors="replace").rstrip()
             if not line:
                 continue
             last_log_line[0] = line
+            # Cattura righe di errore per debug
+            if any(kw in line for kw in ("Exception", "Error", "FATAL", "OOM", "OutOfMemory")):
+                error_lines.append(line)
+                if len(error_lines) > 20:
+                    error_lines.pop(0)
             for keyword, desc, pct in PHASES:
                 if keyword in line:
                     if pct > current_pct[0]:
@@ -600,7 +621,19 @@ def build_gh_graph(state: dict) -> dict:
         state["graph_built"] = True
         state["graph_location"] = graph_location
     else:
-        _fail("Costruzione grafo non completata — controlla che Java sia installato correttamente.")
+        _fail(f"Costruzione grafo non completata (progress: {current_pct[0]}%).")
+        if error_lines:
+            _warn("Ultime righe di errore da GraphHopper:")
+            for el in error_lines[-10:]:
+                _print(f"  [dim]{el}[/dim]")
+        if current_pct[0] <= 5:
+            _warn(
+                "Il grafo si è fermato in fase di importazione OSM.\n"
+                "  Cause comuni:\n"
+                "    • OutOfMemoryError: prova ad aumentare la RAM o usa una regione più piccola\n"
+                "    • File OSM corrotto: riscarica il .pbf\n"
+                "  Heap usato: -Xmx" + xmx
+            )
         shutil.rmtree(graph_dir, ignore_errors=True)
 
     return state

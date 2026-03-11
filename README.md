@@ -1,119 +1,98 @@
 # open-gpx
 
-A self-hosted motorcycle GPX route planner — a local alternative to web paid services 
-
-Plan routes on an interactive map, export them as GPX files, and run everything locally with no external paid APIs.
+A self-hosted motorcycle route planner. Plan routes on an interactive map, tune them with road preference filters, discover mountain passes automatically, and export everything as GPX files — with no cloud subscriptions and no data leaving your machine.
 
 ## Features
 
-- Interactive map with clickable waypoints (add, drag, reorder, remove)
-- Automatic route calculation between waypoints via self-hosted GraphHopper
-- Motorcycle-optimized routing (avoids motorways, prefers scenic roads)
-- GPX export for GPS devices and navigation apps (Garmin, TwoNav, etc.)
-- Address search via Nominatim (OpenStreetMap geocoding)
-- Fully offline-capable once OSM data is imported
+- **Interactive map** — click to add waypoints, drag to reorder, drag markers to adjust position
+- **Adventure level** — single slider (0–100) that shifts routing from motorways toward scenic, curvy backroads
+- **Per-segment filters** — each leg of the route can have independent settings: avoid motorways/highways/primary roads, prefer unpaved or secondary roads
+- **Extreme routing** — automatically finds mountain passes near a waypoint via OpenStreetMap, then routes through them; supports loop mode (lollipop), configurable radius, and cardinal direction filter
+- **Pass selector** — cycle through available passes with `<` / `>` or pick one at random; shows pass name, elevation, and distance
+- **Elevation profile** — chart of altitude along the route
+- **Road type breakdown** — visual summary of road classes and surface types used
+- **Address search** — autocomplete via Nominatim (OpenStreetMap geocoding, no API key)
+- **GPX export** — compatible with Garmin, TwoNav, Komoot, and most GPS devices
+- **Map layer switcher** — toggle base map and trail overlays
+- **Dark / light theme** — persisted in localStorage
+- **Bilingual UI** — Italian and English, persisted in localStorage
+- **Offline capable** — once OSM data is imported, no internet connection required for routing
 
 ## Screenshots
 
+> Coming soon.
 
 ## Architecture
 
 ```
 Browser (localhost:5173)
-  └─ React + Leaflet UI
-       └─ FastAPI (localhost:8000)   ← /api/route, /api/geocode, /api/export/gpx
-            ├─ GraphHopper (localhost:8989)  ← local routing engine
-            └─ Nominatim (nominatim.openstreetmap.org)  ← geocoding
+  └─ React + TypeScript + Leaflet
+       └─ FastAPI (localhost:8000)
+            ├─ GraphHopper (localhost:8989)       ← self-hosted routing engine
+            ├─ Overpass API (overpass-api.de)     ← mountain pass lookup
+            └─ Nominatim (openstreetmap.org)      ← address geocoding
 ```
+
+All routing is computed locally by GraphHopper. Only geocoding and mountain pass queries hit external OpenStreetMap services.
 
 ## Tech Stack
 
-| Layer      | Technology                             |
-|------------|----------------------------------------|
-| Frontend   | React 18 + TypeScript + Vite + Leaflet |
-| Backend    | Python 3.12 + FastAPI + uvicorn        |
-| Routing    | GraphHopper 10.x (local JAR)           |
-| Map tiles  | OpenStreetMap                          |
-| Geocoding  | Nominatim                              |
-| State      | Zustand                                |
-| Drag & drop| @dnd-kit                               |
-| GPX export | gpxpy                                  |
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + TypeScript + Vite + Leaflet |
+| Backend | Python 3.12 + FastAPI + uvicorn |
+| Routing engine | GraphHopper 10.x (self-hosted JAR) |
+| Elevation data | CGIAR SRTM tiles (auto-downloaded) |
+| Geocoding | Nominatim (OpenStreetMap) |
+| Mountain passes | Overpass API |
+| State management | Zustand |
+| Drag & drop | @dnd-kit |
+| GPX generation | gpxpy |
+| Dashboard launcher | Python `rich` |
 
 ## Prerequisites
 
-- **Java 11+** (for GraphHopper)
-- **Python 3.12** (not 3.13+, pydantic-core wheels not yet available)
-- **Node.js 18+** and npm
-- ~3 GB free disk space (OSM data + routing graph)
+| Requirement | Version | Notes |
+|---|---|---|
+| Java | 11 or newer | Required to run GraphHopper |
+| Python | 3.12 | 3.13+ not yet supported by pydantic-core |
+| Node.js | 18 or newer | Frontend build tooling |
+| Disk space | ~3 GB | OSM data + routing graph for Italy |
 
 ## Setup
 
-### 1. Download GraphHopper and OSM data
+### 1. Get the OSM data and GraphHopper JAR
+
+Download an OSM extract for your region from [Geofabrik](https://download.geofabrik.de/) and place it inside the `graphhopper/` folder:
 
 ```bash
-mkdir -p ~/graphhopper-data
-cd ~/graphhopper-data
+cd graphhopper
 
-# Download GraphHopper JAR
-curl -LO https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar
-
-# Download OSM data for Italy (adjust region as needed)
+# Italy (~2 GB)
 curl -LO https://download.geofabrik.de/europe/italy-latest.osm.pbf
-# ~2 GB — check progress: watch -n3 "stat -f%z italy-latest.osm.pbf | awk '{printf \"%dMB\n\", \$1/1024/1024}'"
+
+# GraphHopper routing engine
+curl -LO https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar
 ```
 
-### 2. Create GraphHopper config
+For a different region, update `datareader.file` in `graphhopper/config.yml` to match your `.osm.pbf` filename.
 
-Create `~/graphhopper-data/config.yml`:
-
-```yaml
-graphhopper:
-  datareader.file: italy-latest.osm.pbf
-  graph.location: italy-gh
-
-  profiles:
-    - name: motorcycle
-      custom_model_files: [car.json]
-
-  profiles_ch: []
-
-  graph.encoded_values: car_access, car_average_speed, toll, road_class, road_environment
-
-  import.osm.ignored_highways: footway, cycleway, path, pedestrian, steps
-
-server:
-  application_connectors:
-    - type: http
-      port: 8989
-  admin_connectors:
-    - type: http
-      port: 8990
-```
-
-### 3. Start GraphHopper
-
-```bash
-cd ~/graphhopper-data
-java -jar graphhopper-web-10.0.jar server config.yml
-# First run: ~15 min to import OSM data → builds italy-gh/ cache
-# Subsequent runs: ~30 sec
-```
-
-Verify it's ready:
-```bash
-curl http://localhost:8989/health
-```
-
-### 4. Install backend dependencies
+### 2. Set up the Python backend
 
 ```bash
 cd backend
 python3.12 -m venv .venv
+
+# macOS / Linux
 source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
+
 pip install -r requirements.txt
 ```
 
-### 5. Install frontend dependencies
+### 3. Install frontend dependencies
 
 ```bash
 cd frontend
@@ -122,70 +101,252 @@ npm install
 
 ## Running
 
-### macOS — one-click start
+### Windows — one-command start
 
-Double-click `start.command` to launch all three services and open the browser automatically.
-Double-click `stop.command` to shut everything down.
+```bat
+scripts\win\start.bat
+```
 
-### Manual start
+This calls `start.py` at the project root, which launches GraphHopper, the FastAPI backend, and the Vite dev server in a single terminal with color-coded unified log output. Press `Ctrl+C` to stop all services.
+
+If GraphHopper is already running, skip it with:
+
+```bat
+scripts\win\start.bat --no-gh
+```
+
+### macOS — one-command start
+
+```bash
+scripts/macos/start.command
+```
+
+### Manual start (any OS)
+
+Open three separate terminals:
 
 ```bash
 # Terminal 1 — GraphHopper
-cd ~/graphhopper-data && java -jar graphhopper-web-10.0.jar server config.yml
+cd graphhopper
+java -jar graphhopper-web-10.0.jar server config.yml
+# First run: ~15 min to build the routing graph
+# Subsequent runs: ~30 sec
 
 # Terminal 2 — Backend
-cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
+cd backend
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+uvicorn app.main:app --reload --port 8000
 
 # Terminal 3 — Frontend
-cd frontend && npm run dev
+cd frontend
+npm run dev
 ```
 
 Open **http://localhost:5173** in your browser.
 
-## API Endpoints
+## How It Works
 
-| Method | Endpoint           | Description                        |
-|--------|--------------------|------------------------------------|
-| POST   | `/api/route`       | Calculate route between waypoints  |
-| GET    | `/api/geocode`     | Search address via Nominatim       |
-| POST   | `/api/export/gpx`  | Export current route as GPX file   |
+### Routing and adventure level
+
+The adventure slider (0–100) controls GraphHopper's custom model in real time:
+
+| Level | Behaviour |
+|---|---|
+| 0–30 | Fastest route; motorways and primary roads fully allowed |
+| 30–60 | Motorways softly penalized; secondary roads preferred |
+| 60–80 | Strong preference for secondary, tertiary, and curvy roads |
+| 80–100 | Extreme scenic mode: motorways avoided entirely; gravel/dirt paths preferred; maximum curvature bonus |
+
+Per-segment filter checkboxes override the adventure level for individual legs of the route.
+
+### Extreme routing
+
+Enable the **Extreme** toggle on any waypoint to force the route through a mountain pass near that leg:
+
+1. The backend queries Overpass API for mountain passes and natural saddles above 800 m within the configured radius.
+2. Passes are filtered by cardinal direction (N / S / E / O) if selected.
+3. The route is recalculated through the best available pass.
+4. Use `<` and `>` in the sidebar to cycle through alternative passes, or `?` for a random one.
+5. Enable **Loop** to generate a lollipop route: the path goes up to the pass, continues 2 km beyond it, loops back to the departure point, then proceeds to the destination.
+
+The **Extreme Log** panel shows the result for each segment: pass name, elevation, distance, and whether the pass was used or was unreachable.
+
+### GPX export
+
+Click **Export GPX** in the sidebar to download the current route as a standard GPX file. The file includes waypoints and the full track and is compatible with Garmin devices, TwoNav, Komoot import, and most navigation apps.
+
+## API Reference
+
+All endpoints are exposed by the FastAPI backend at `http://localhost:8000`.
+
+### `POST /api/route`
+
+Calculate a multi-segment route.
+
+**Request body**
+
+```json
+{
+  "waypoints": [
+    { "lat": 45.4654, "lng": 9.1859 },
+    { "lat": 46.0664, "lng": 11.1218 }
+  ],
+  "adventure": 70,
+  "segment_options": [
+    {
+      "adventure": 70,
+      "avoid_motorways": true,
+      "avoid_highways": false,
+      "avoid_primary": false,
+      "prefer_unpaved": false,
+      "prefer_secondary": true,
+      "extreme": false,
+      "extreme_radius_km": 30,
+      "extreme_direction": null,
+      "extreme_loop": false,
+      "extreme_pass_index": 0
+    }
+  ]
+}
+```
+
+**Response**
+
+```json
+{
+  "distance_m": 185400,
+  "duration_s": 9120,
+  "geometry": [[45.4654, 9.1859], ...],
+  "elevation": [{ "d": 0.0, "ele": 122 }, ...],
+  "max_elevation": 2108,
+  "min_elevation": 122,
+  "road_stats": {
+    "road_class": { "secondary": 0.45, "tertiary": 0.30, "primary": 0.25 },
+    "surface": { "asphalt": 0.80, "gravel": 0.20 }
+  },
+  "extreme_log": [
+    {
+      "segment": 0,
+      "name": "Passo Tonale",
+      "lat": 46.2567,
+      "lng": 10.5789,
+      "ele": 1883,
+      "ctd_m": 24500,
+      "status": "used",
+      "mode": "route",
+      "passes_found": 3
+    }
+  ]
+}
+```
+
+### `GET /api/geocode?q=<query>`
+
+Search for an address using Nominatim. Returns a list of candidates with `lat`, `lng`, and `display_name`.
+
+### `POST /api/export/gpx`
+
+Export the current route as a GPX file. Accepts the same geometry array returned by `/api/route`.
+
+### `GET /api/health`
+
+Returns `{ "status": "ok" }`. Useful for readiness checks.
 
 ## Project Structure
 
 ```
 open-gpx/
+├── start.py                        # Unified launcher (GraphHopper + backend + frontend)
 ├── backend/
-│   ├── app/
-│   │   ├── main.py               # FastAPI entry point
-│   │   ├── config.py             # Settings
-│   │   ├── routers/
-│   │   │   ├── routing.py        # POST /api/route
-│   │   │   ├── geocoding.py      # GET /api/geocode
-│   │   │   └── export.py         # POST /api/export/gpx
-│   │   └── services/
-│   │       ├── graphhopper.py    # GraphHopper client + custom models
-│   │       ├── gpx_builder.py    # GPX file generation
-│   │       └── nominatim.py      # Geocoding proxy
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py                 # FastAPI entry point, CORS, routers
+│       ├── config.py               # Settings (GraphHopper URL via env)
+│       ├── routers/
+│       │   ├── routing.py          # POST /api/route — Pydantic models + handler
+│       │   ├── geocoding.py        # GET /api/geocode
+│       │   └── export.py           # POST /api/export/gpx
+│       └── services/
+│           ├── graphhopper.py      # Custom model builder + routing logic
+│           ├── overpass.py         # Mountain pass lookup via Overpass API
+│           ├── nominatim.py        # Geocoding proxy
+│           └── gpx_builder.py      # GPX file generation
 ├── frontend/
 │   └── src/
-│       ├── components/
-│       │   ├── Sidebar/          # Waypoint list, search, controls
-│       │   └── MapView/          # Leaflet map, markers, route polyline
-│       ├── hooks/
-│       │   ├── useRouteCalculation.ts  # Debounced auto-routing
-│       │   └── useGeocoding.ts         # Debounced address search
-│       ├── store/
-│       │   └── useRouteStore.ts  # Zustand global state
-│       └── types/
-├── start.command                 # macOS: start all services
-├── stop.command                  # macOS: stop all services
-└── README.md
+│       ├── types/index.ts          # Shared TypeScript types
+│       ├── api/                    # Fetch wrappers
+│       ├── store/                  # Zustand stores (route, theme, i18n, map)
+│       ├── hooks/                  # useRouteCalculation, useGeocoding
+│       ├── i18n/                   # IT/EN translations
+│       └── components/
+│           ├── Sidebar/            # Waypoint list, filters, stats, export
+│           └── MapView/            # Leaflet map, markers, polyline, extreme circles
+├── graphhopper/
+│   ├── config.yml                  # GraphHopper configuration
+│   ├── graphhopper-web-10.0.jar    # Routing engine (download separately)
+│   └── italy-latest.osm.pbf        # OSM data (download separately)
+└── scripts/
+    ├── win/                        # Windows batch scripts
+    ├── macos/                      # macOS shell scripts
+    └── download_elevation.py       # SRTM elevation tile downloader
 ```
 
-## OSM Data for Other Regions
+## Configuration
 
-Download any region from [Geofabrik](https://download.geofabrik.de/) and update `datareader.file` in `config.yml` accordingly.
+### GraphHopper (`graphhopper/config.yml`)
+
+The key settings are:
+
+```yaml
+graphhopper:
+  datareader.file: italy-latest.osm.pbf   # path to your OSM extract
+  graph.location: italy-gh                 # routing graph cache directory
+  profiles:
+    - name: motorcycle
+      custom_model_files: [car.json]
+  graph.encoded_values: car_access, car_average_speed, toll, road_class,
+                        road_environment, curvature, surface, max_speed
+  graph.elevation.provider: cgiar
+  graph.elevation.cache_dir: elevation-cache
+  import.osm.ignored_highways: footway, cycleway, path, pedestrian, steps
+```
+
+`profiles_ch: []` disables Contraction Hierarchies so that the custom model (adventure level) can be applied dynamically per request.
+
+### Backend environment (`.env`)
+
+Copy `backend/.env.example` to `backend/.env` and adjust if GraphHopper runs on a non-default port:
+
+```
+GRAPHHOPPER_URL=http://localhost:8989
+```
+
+## Using a Different Region
+
+1. Download the `.osm.pbf` file for your region from [Geofabrik](https://download.geofabrik.de/).
+2. Place it in `graphhopper/`.
+3. Update `datareader.file` in `graphhopper/config.yml`.
+4. Delete the old `graphhopper/italy-gh/` cache directory if it exists.
+5. Start GraphHopper — the graph will be rebuilt on first run.
+
+## Troubleshooting
+
+**GraphHopper does not start**
+- Verify Java is installed: `java -version`
+- Check that the `.osm.pbf` file exists and is not corrupted
+
+**No route is calculated**
+- Open the browser console and look for network errors on `/api/route`
+- Confirm GraphHopper is running: `curl http://localhost:8989/health`
+- Confirm the backend is running: `curl http://localhost:8000/api/health`
+
+**Extreme routing finds no passes**
+- Increase the search radius slider
+- Remove the direction filter
+- The area may not have tagged mountain passes in OpenStreetMap
+
+**Elevation profile is empty**
+- GraphHopper requires elevation data to be pre-cached; run `scripts/download_elevation.py` for your bounding box or let GraphHopper download tiles automatically on first routing request
 
 ## License
 
@@ -193,7 +354,9 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-- [GraphHopper](https://github.com/graphhopper/graphhopper) — open source routing engine
-- [OpenStreetMap](https://www.openstreetmap.org/) — map data
-- [Nominatim](https://nominatim.org/) — geocoding
-- [react-leaflet](https://react-leaflet.js.org/) — map rendering
+- [GraphHopper](https://github.com/graphhopper/graphhopper) — open-source routing engine
+- [OpenStreetMap](https://www.openstreetmap.org/) — map data and geocoding
+- [Nominatim](https://nominatim.org/) — address search
+- [Overpass API](https://overpass-api.de/) — OpenStreetMap data queries
+- [react-leaflet](https://react-leaflet.js.org/) — map rendering for React
+- [gpxpy](https://github.com/tkrajina/gpxpy) — GPX file handling

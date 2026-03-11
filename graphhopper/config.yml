@@ -10,8 +10,8 @@ graphhopper:
 
   graph.encoded_values: car_access, car_average_speed, toll, road_class, road_environment, curvature, surface, max_speed
 
-  elevation.provider: srtm
-  elevation.cache_dir: elevation-cache
+  graph.elevation.provider: cgiar
+  graph.elevation.cache_dir: elevation-cache
 
   import.osm.ignored_highways: footway, cycleway, path, pedestrian, steps
 

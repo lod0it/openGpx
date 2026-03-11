@@ -2,7 +2,22 @@
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR"
 
-# Installa rich se mancante
-python3 -c "import rich" 2>/dev/null || pip3 install rich --quiet
+# Preferisce il venv del backend (già include rich dopo setup).
+# Fallback: venv launcher minimo per evitare pip system-wide (PEP 668).
+BACKEND_PYTHON="$PROJECT_DIR/backend/.venv/bin/python"
+LAUNCHER_VENV="$PROJECT_DIR/.launcher-venv"
 
-python3 start.py "$@"
+if [ -f "$BACKEND_PYTHON" ]; then
+    PYTHON="$BACKEND_PYTHON"
+elif python3 -c "import rich" 2>/dev/null; then
+    PYTHON="python3"
+else
+    if [ ! -d "$LAUNCHER_VENV" ]; then
+        echo "Creo venv launcher per rich..."
+        python3 -m venv "$LAUNCHER_VENV"
+        "$LAUNCHER_VENV/bin/pip" install rich --quiet
+    fi
+    PYTHON="$LAUNCHER_VENV/bin/python"
+fi
+
+"$PYTHON" start.py "$@"

@@ -30,6 +30,7 @@ export function useRouteCalculation() {
             maxElevation: result.max_elevation,
             minElevation: result.min_elevation,
             roadStats: result.road_stats,
+            extremeLog: result.extreme_log ?? [],
           })
         }
       } catch (err) {

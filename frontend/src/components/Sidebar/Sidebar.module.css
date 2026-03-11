@@ -1,6 +1,6 @@
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  /* width e min-width vengono applicati via inline style dal componente */
+  position: relative;
   height: 100%;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
@@ -9,6 +9,33 @@
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resizeHandle:hover::after {
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .logo {

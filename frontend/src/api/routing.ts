@@ -15,7 +15,11 @@ export async function fetchRoute(
       avoid_primary: (opts?.avoid_primary || globalFilters.avoid_primary),
       prefer_unpaved: (opts?.prefer_unpaved || globalFilters.prefer_unpaved),
       prefer_secondary: (opts?.prefer_secondary || globalFilters.prefer_secondary),
-      prefer_mountain_passes: (opts?.prefer_mountain_passes || globalFilters.prefer_mountain_passes),
+      extreme: (opts?.extreme || false),
+      extreme_radius_km: opts?.extreme_radius_km ?? 20,
+      extreme_direction: opts?.extreme_direction ?? null,
+      extreme_loop: opts?.extreme_loop ?? false,
+      extreme_pass_index: opts?.extreme_pass_index ?? 0,
     }
   })
 

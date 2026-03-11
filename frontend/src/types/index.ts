@@ -12,7 +12,11 @@ export interface SegmentOptions {
   avoid_primary: boolean
   prefer_unpaved: boolean
   prefer_secondary: boolean
-  prefer_mountain_passes: boolean
+  extreme: boolean
+  extreme_radius_km: number
+  extreme_direction?: 'N' | 'S' | 'E' | 'O'
+  extreme_loop: boolean
+  extreme_pass_index: number
 }
 
 export const defaultSegmentOptions: SegmentOptions = {
@@ -22,7 +26,11 @@ export const defaultSegmentOptions: SegmentOptions = {
   avoid_primary: false,
   prefer_unpaved: false,
   prefer_secondary: false,
-  prefer_mountain_passes: false,
+  extreme: false,
+  extreme_radius_km: 20,
+  extreme_direction: undefined,
+  extreme_loop: false,
+  extreme_pass_index: 0,
 }
 
 export interface GlobalFilters {
@@ -31,7 +39,6 @@ export interface GlobalFilters {
   avoid_primary: boolean
   prefer_unpaved: boolean
   prefer_secondary: boolean
-  prefer_mountain_passes: boolean
 }
 
 export const defaultGlobalFilters: GlobalFilters = {
@@ -40,7 +47,6 @@ export const defaultGlobalFilters: GlobalFilters = {
   avoid_primary: false,
   prefer_unpaved: false,
   prefer_secondary: false,
-  prefer_mountain_passes: false,
 }
 
 export interface ElevationPoint {
@@ -53,6 +59,18 @@ export interface RoadStats {
   surface: Record<string, number>
 }
 
+export interface ExtremeLogEntry {
+  segment: number
+  name: string
+  lat: number
+  lng: number
+  ele: number
+  ctd_m: number
+  status: 'used' | 'unreachable' | 'no_passes'
+  mode: string
+  passes_found: number
+}
+
 export interface RouteResult {
   distance_m: number
   duration_s: number
@@ -61,6 +79,7 @@ export interface RouteResult {
   max_elevation: number | null
   min_elevation: number | null
   road_stats: RoadStats
+  extreme_log: ExtremeLogEntry[]
 }
 
 export interface GeocodeResult {

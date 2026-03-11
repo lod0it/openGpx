@@ -3,12 +3,15 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { MapView } from './components/MapView/MapView'
 import { MapPanel } from './components/MapView/MapPanel'
 import { LanguageToggle } from './components/UI/LanguageToggle'
+import { UpdateButton } from './components/UI/UpdateButton'
 import { useRouteCalculation } from './hooks/useRouteCalculation'
+import { useHeartbeat } from './hooks/useHeartbeat'
 import { useThemeStore } from './store/useThemeStore'
 import './App.css'
 
 function App() {
   useRouteCalculation()
+  useHeartbeat()
   const theme = useThemeStore((s) => s.theme)
 
   useEffect(() => {
@@ -23,6 +26,7 @@ function App() {
         <MapPanel />
       </div>
       <LanguageToggle />
+      <UpdateButton />
     </div>
   )
 }

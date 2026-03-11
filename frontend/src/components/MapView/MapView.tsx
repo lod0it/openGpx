@@ -3,6 +3,8 @@ import 'leaflet/dist/leaflet.css'
 import { MapClickHandler } from './MapClickHandler'
 import { WaypointMarkers } from './WaypointMarkers'
 import { RoutePolyline } from './RoutePolyline'
+import { ExtremeCircles } from './ExtremeCircles'
+import { MapAutoFit } from './MapAutoFit'
 import { useMapStore } from '../../store/useMapStore'
 
 const TILE_LAYERS = {
@@ -58,6 +60,8 @@ export function MapView() {
       <MapClickHandler />
       <WaypointMarkers />
       <RoutePolyline />
+      <ExtremeCircles />
+      <MapAutoFit />
     </MapContainer>
   )
 }

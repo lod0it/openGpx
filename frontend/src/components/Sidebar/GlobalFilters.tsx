@@ -9,7 +9,6 @@ const FILTERS: { key: keyof GlobalFilters; labelKey: string }[] = [
   { key: 'avoid_primary', labelKey: 'filters.avoid_primary' },
   { key: 'prefer_unpaved', labelKey: 'filters.prefer_unpaved' },
   { key: 'prefer_secondary', labelKey: 'filters.prefer_secondary' },
-  { key: 'prefer_mountain_passes', labelKey: 'filters.prefer_mountain_passes' },
 ]
 
 export function GlobalFiltersPanel() {

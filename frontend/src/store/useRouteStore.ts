@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import { arrayMove } from '@dnd-kit/sortable'
-import type { Waypoint, SegmentOptions, ElevationPoint, RoadStats, GlobalFilters } from '../types'
+import type { Waypoint, SegmentOptions, ElevationPoint, RoadStats, GlobalFilters, ExtremeLogEntry } from '../types'
 import { defaultGlobalFilters } from '../types'
 
 interface RouteStore {
@@ -16,6 +16,7 @@ interface RouteStore {
   maxElevation: number | null
   minElevation: number | null
   roadStats: RoadStats | null
+  extremeLog: ExtremeLogEntry[]
   isLoading: boolean
   error: string | null
 
@@ -34,6 +35,7 @@ interface RouteStore {
     maxElevation: number | null
     minElevation: number | null
     roadStats: RoadStats
+    extremeLog: ExtremeLogEntry[]
   }) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -52,6 +54,7 @@ export const useRouteStore = create<RouteStore>((set) => ({
   maxElevation: null,
   minElevation: null,
   roadStats: null,
+  extremeLog: [],
   isLoading: false,
   error: null,
 
@@ -74,6 +77,7 @@ export const useRouteStore = create<RouteStore>((set) => ({
         durationS: filtered.length < 2 ? null : state.durationS,
         elevation: filtered.length < 2 ? [] : state.elevation,
         roadStats: filtered.length < 2 ? null : state.roadStats,
+        extremeLog: filtered.length < 2 ? [] : state.extremeLog,
       }
     }),
 
@@ -99,8 +103,8 @@ export const useRouteStore = create<RouteStore>((set) => ({
       globalFilters: { ...state.globalFilters, ...patch },
     })),
 
-  setRoute: ({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats }) =>
-    set({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, isLoading: false, error: null }),
+  setRoute: ({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, extremeLog }) =>
+    set({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, extremeLog, isLoading: false, error: null }),
 
   setLoading: (isLoading) => set({ isLoading }),
 
@@ -117,6 +121,7 @@ export const useRouteStore = create<RouteStore>((set) => ({
       maxElevation: null,
       minElevation: null,
       roadStats: null,
+      extremeLog: [],
       error: null,
     }),
 }))

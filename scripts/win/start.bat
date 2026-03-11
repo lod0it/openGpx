@@ -1,10 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-
-echo.
-echo === open-gpx - Setup iniziale ===
-echo.
+set "PROJECT_DIR=%~dp0..\.."
+cd /d "%PROJECT_DIR%"
 
 where python >nul 2>&1
 if errorlevel 1 (
@@ -20,5 +17,4 @@ if errorlevel 1 (
     pip install rich --quiet
 )
 
-python setup.py %*
-pause
+python scripts\start.py %*

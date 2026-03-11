@@ -1,10 +1,16 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+set "PROJECT_DIR=%~dp0..\.."
+cd /d "%PROJECT_DIR%"
+
+echo.
+echo === open-gpx - Setup iniziale ===
+echo.
 
 where python >nul 2>&1
 if errorlevel 1 (
     echo [ERRORE] Python non trovato nel PATH.
+    echo Installa Python 3.12+ da https://python.org
     pause
     exit /b 1
 )
@@ -15,5 +21,5 @@ if errorlevel 1 (
     pip install rich --quiet
 )
 
-python update.py %*
+python scripts\setup.py %*
 pause

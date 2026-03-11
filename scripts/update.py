@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent
 STATE_FILE = ROOT / "backend" / ".setup-state"
 
 # ── Rich opzionale ───────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ def check_graphhopper(state: dict) -> dict:
         _skip("config.yml invariato")
 
     # Controlla se il JAR richiesto è cambiato
-    start_py = ROOT / "start.py"
+    start_py = ROOT / "scripts" / "start.py"
     if start_py.exists():
         m = re.search(r'"graphhopper-web-([\d.]+)\.jar"', start_py.read_text())
         if m:

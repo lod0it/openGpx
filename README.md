@@ -18,6 +18,99 @@ A self-hosted motorcycle route planner. Plan routes on an interactive map, tune 
 - **Bilingual UI** — Italian and English, persisted in localStorage
 - **Offline capable** — once OSM data is imported, no internet connection required for routing
 
+## Quick Start
+
+> Never used a terminal before? No problem — just follow these steps in order and the app installs itself.
+>
+> You will need about **3 GB of free disk space**.
+
+---
+
+### Installation on macOS
+
+**Step 1 — Install dependencies**
+
+Open **Terminal** (find it with Spotlight: `Cmd + Space`, type "Terminal") and paste these commands one at a time:
+
+```bash
+# 1. Install Homebrew (macOS package manager)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Install Python 3.12
+brew install python@3.12
+
+# 3. Install Java (OpenJDK)
+brew install --cask temurin
+
+# 4. Install Node.js
+brew install node
+```
+
+> If Homebrew is already installed, skip the first command. If a tool is already installed, Homebrew will just tell you and you can move on.
+
+**Step 2 — Download the project**
+
+Download or clone this repository to your computer and note where you save it.
+
+**Step 3 — Run the setup**
+
+Open the `scripts/macos/` folder in Finder and double-click **`setup.command`**.
+
+- If macOS blocks the file, go to *System Settings → Privacy & Security* and click *Open Anyway*.
+- The script automatically downloads the map data, routing engine, and all dependencies.
+- **The first run may take 15–30 minutes** depending on your connection.
+
+When it finishes, the app opens automatically in your browser.
+
+**To launch the app next time:** double-click `scripts/macos/start.command`.
+
+---
+
+### Installation on Windows
+
+**Step 1 — Install dependencies**
+
+Open **Command Prompt** or **PowerShell** as administrator (right-click the Start menu → *Terminal (Admin)*) and paste these commands one at a time:
+
+```bat
+:: 1. Install Python 3.12
+winget install --id Python.Python.3.12 --source winget
+
+:: 2. Install Java (Eclipse Temurin 21 LTS)
+winget install --id EclipseAdoptium.Temurin.21.JDK --source winget
+
+:: 3. Install Node.js LTS
+winget install --id OpenJS.NodeJS.LTS --source winget
+```
+
+> `winget` is built into Windows 10 (2020 update) and Windows 11. If the command is not recognised, update Windows or install [App Installer](https://apps.microsoft.com/detail/9NBLGGH4NNS1) from the Microsoft Store.
+>
+> **After installation, close and reopen the terminal** so the new commands are available in your PATH.
+
+**Step 2 — Download the project**
+
+Download or clone this repository to your computer and note where you save it.
+
+**Step 3 — Run the setup**
+
+Open the `scripts\win\` folder in File Explorer and double-click **`setup.bat`**.
+
+- If Windows shows a "PC protected" warning, click *More info → Run anyway*.
+- The script automatically downloads the map data, routing engine, and all dependencies.
+- **The first run may take 15–30 minutes** depending on your connection.
+
+When it finishes, the app opens automatically in your browser.
+
+**To launch the app next time:** double-click `scripts\win\start.bat`.
+
+---
+
+### Updating the app
+
+Double-click `scripts/macos/update.command` (macOS) or `scripts\win\update.bat` (Windows).
+
+---
+
 ## Screenshots
 
 > Coming soon.
@@ -59,7 +152,9 @@ All routing is computed locally by GraphHopper. Only geocoding and mountain pass
 | Node.js | 18 or newer | Frontend build tooling |
 | Disk space | ~3 GB | OSM data + routing graph for Italy |
 
-## Setup
+## Setup (advanced / manual)
+
+> The `setup.command` / `setup.bat` scripts handle everything below automatically. Follow this section only if you prefer a manual setup or need to troubleshoot.
 
 ### 1. Get the OSM data and GraphHopper JAR
 
@@ -101,13 +196,11 @@ npm install
 
 ## Running
 
-### Windows — one-command start
+### Windows
 
 ```bat
 scripts\win\start.bat
 ```
-
-This calls `start.py` at the project root, which launches GraphHopper, the FastAPI backend, and the Vite dev server in a single terminal with color-coded unified log output. Press `Ctrl+C` to stop all services.
 
 If GraphHopper is already running, skip it with:
 
@@ -115,11 +208,13 @@ If GraphHopper is already running, skip it with:
 scripts\win\start.bat --no-gh
 ```
 
-### macOS — one-command start
+### macOS
 
 ```bash
 scripts/macos/start.command
 ```
+
+This launches GraphHopper, the FastAPI backend, and the Vite dev server in a single terminal with color-coded unified log output. Press `Ctrl+C` to stop all services.
 
 ### Manual start (any OS)
 
@@ -256,7 +351,6 @@ Returns `{ "status": "ok" }`. Useful for readiness checks.
 
 ```
 open-gpx/
-├── start.py                        # Unified launcher (GraphHopper + backend + frontend)
 ├── backend/
 │   ├── requirements.txt
 │   └── app/
@@ -286,9 +380,23 @@ open-gpx/
 │   ├── graphhopper-web-10.0.jar    # Routing engine (download separately)
 │   └── italy-latest.osm.pbf        # OSM data (download separately)
 └── scripts/
-    ├── win/                        # Windows batch scripts
-    ├── macos/                      # macOS shell scripts
-    └── download_elevation.py       # SRTM elevation tile downloader
+    ├── setup.py                    # First-time setup (installs all dependencies)
+    ├── start.py                    # Unified launcher (GraphHopper + backend + frontend)
+    ├── update.py                   # Updater (git pull + dependency sync)
+    ├── download_elevation.py       # SRTM elevation tile downloader
+    ├── macos/
+    │   ├── setup.command           # Double-click to install (macOS)
+    │   ├── start.command           # Double-click to launch (macOS)
+    │   ├── update.command          # Double-click to update (macOS)
+    │   ├── stop.command            # Stop all services (macOS)
+    │   └── download_elevation.command
+    └── win/
+        ├── setup.bat               # Double-click to install (Windows)
+        ├── start.bat               # Double-click to launch (Windows)
+        ├── update.bat              # Double-click to update (Windows)
+        ├── stop.bat                # Stop all services (Windows)
+        ├── download_elevation.bat
+        └── test.bat                # API smoke tests (developer tool)
 ```
 
 ## Configuration

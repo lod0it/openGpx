@@ -1,7 +1,7 @@
 import httpx
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-USER_AGENT = "open-gpx/1.0 (local development)"
+USER_AGENT = "open-gpx/1.0 (https://github.com/lod0it/openGpx)"
 
 
 async def geocode(query: str) -> list[dict]:

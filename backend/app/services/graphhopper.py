@@ -1,7 +1,11 @@
 import math
+import logging
 from collections import defaultdict
 import httpx
 from app.config import settings
+from app.services.overpass import fetch_passes_around
+
+logger = logging.getLogger("opengpx")
 
 
 def _haversine_m(a: list, b: list) -> float:
@@ -11,6 +15,42 @@ def _haversine_m(a: list, b: list) -> float:
     dlat, dlon = lat2 - lat1, lon2 - lon1
     h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 2 * 6_371_000 * math.asin(math.sqrt(h))
+
+
+def _nudge_toward(start: dict, end: dict, meters: float = 300.0) -> dict:
+    """Punto a `meters` m da start in direzione end."""
+    R = 6_371_000.0
+    lat1 = math.radians(start["lat"])
+    lng1 = math.radians(start["lng"])
+    lat2 = math.radians(end["lat"])
+    lng2 = math.radians(end["lng"])
+
+    dlon = lng2 - lng1
+    x = math.sin(dlon) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    bearing = math.atan2(x, y)
+
+    d = meters / R
+    lat_out = math.asin(
+        math.sin(lat1) * math.cos(d) + math.cos(lat1) * math.sin(d) * math.cos(bearing)
+    )
+    lng_out = lng1 + math.atan2(
+        math.sin(bearing) * math.sin(d) * math.cos(lat1),
+        math.cos(d) - math.sin(lat1) * math.sin(lat_out),
+    )
+    return {"lat": math.degrees(lat_out), "lng": math.degrees(lng_out)}
+
+
+def _nudge_past_pass(seg_start: dict, pass_wp: dict, meters: float = 2000.0) -> dict:
+    """
+    Punto a `meters` m oltre pass_wp nella direzione seg_start→pass_wp.
+    Usato per il loop: forza GH ad andare 2km oltre il passo prima di tornare.
+    """
+    dist_to_pass = _haversine_m(
+        [seg_start["lng"], seg_start["lat"]],
+        [pass_wp["lng"], pass_wp["lat"]],
+    )
+    return _nudge_toward(seg_start, pass_wp, meters=dist_to_pass + meters)
 
 
 def build_custom_model(adventure: int, filters: dict) -> dict:
@@ -60,7 +100,7 @@ def build_custom_model(adventure: int, filters: dict) -> dict:
         priority.append({"if": "road_class == SECONDARY", "multiply_by": "1.5"})
         priority.append({"if": "road_class == TERTIARY", "multiply_by": "1.5"})
 
-    if filters.get("prefer_mountain_passes"):
+    if filters.get("extreme"):
         priority.append({"if": "road_class == MOTORWAY", "multiply_by": "0.01"})
         priority.append({"if": "road_class == TRUNK", "multiply_by": "0.05"})
         priority.append({"if": "road_class == PRIMARY", "multiply_by": "0.3"})
@@ -72,7 +112,7 @@ def build_custom_model(adventure: int, filters: dict) -> dict:
     model: dict = {"priority": priority} if priority else {}
     if adventure > 0:
         model["distance_influence"] = round(adventure * 1.5)
-    if filters.get("prefer_mountain_passes"):
+    if filters.get("extreme"):
         model["distance_influence"] = 250
     return model
 
@@ -110,6 +150,7 @@ async def get_route(
     all_coords_3d: list[list[float]] = []
     agg_road_class: dict[str, float] = defaultdict(float)
     agg_surface: dict[str, float] = defaultdict(float)
+    extreme_log: list[dict] = []
 
     for i in range(len(waypoints) - 1):
         seg_opts = segment_options[i] if i < len(segment_options) else {}
@@ -121,7 +162,84 @@ async def get_route(
         filters = {k: v for k, v in seg_opts.items() if k != "adventure"}
 
         custom_model = build_custom_model(seg_adventure, filters)
-        data = await _call_graphhopper([waypoints[i], waypoints[i + 1]], custom_model)
+
+        seg_start, seg_end = waypoints[i], waypoints[i + 1]
+        data = None
+
+        if filters.get("extreme"):
+            radius = filters.get("extreme_radius_km", 50.0)
+            direction = filters.get("extreme_direction")
+            pass_index = int(filters.get("extreme_pass_index", 0))
+            extreme_loop = filters.get("extreme_loop", False)
+
+            logger.info(f"[Extreme] seg={i} start={seg_start} radius={radius}km dir={direction} idx={pass_index} loop={extreme_loop}")
+            passes = await fetch_passes_around(seg_start, radius, direction)
+            passes_found = len(passes)
+            names = [p['name'] or f"{p['lat']:.4f},{p['lng']:.4f}" for p in passes]
+            logger.info(f"[Extreme] seg={i} trovati {passes_found} passi: {names}")
+
+            if not passes:
+                extreme_log.append({
+                    "segment": i,
+                    "name": "—",
+                    "lat": seg_start["lat"],
+                    "lng": seg_start["lng"],
+                    "ele": 0,
+                    "ctd_m": 0,
+                    "status": "no_passes",
+                    "mode": "",
+                    "passes_found": 0,
+                })
+            else:
+                # Riordina in base all'indice scelto dall'utente (con fallback circolare)
+                preferred_idx = pass_index % passes_found
+                ordered = passes[preferred_idx:] + passes[:preferred_idx]
+
+                for p in ordered:
+                    pass_wp = {"lat": p["lat"], "lng": p["lng"]}
+                    try:
+                        if extreme_loop:
+                            # Loop: start → pass → (2km oltre il passo) → start → end
+                            # Crea un lollipop visibile sulla mappa
+                            nudge = _nudge_past_pass(seg_start, pass_wp, meters=2000.0)
+                            points = [seg_start, pass_wp, nudge, seg_start, seg_end]
+                        else:
+                            points = [seg_start, pass_wp, seg_end]
+
+                        data = await _call_graphhopper(points, custom_model)
+                        mode = "loop" if extreme_loop else "route"
+                        extreme_log.append({
+                            "segment": i,
+                            "name": p["name"],
+                            "lat": p["lat"],
+                            "lng": p["lng"],
+                            "ele": p["ele"],
+                            "ctd_m": round(p["dist"]),
+                            "status": "used",
+                            "mode": mode,
+                            "passes_found": passes_found,
+                        })
+                        logger.info(f"[Extreme] Pass usato ({mode}): {p['name']} lat={p['lat']} lng={p['lng']} ele={p['ele']}m idx={preferred_idx}/{passes_found}")
+                        break
+                    except RuntimeError as exc:
+                        if "PointNotFoundException" in str(exc):
+                            extreme_log.append({
+                                "segment": i,
+                                "name": p["name"],
+                                "lat": p["lat"],
+                                "lng": p["lng"],
+                                "ele": p["ele"],
+                                "ctd_m": round(p["dist"]),
+                                "status": "unreachable",
+                                "mode": "",
+                                "passes_found": passes_found,
+                            })
+                            logger.info(f"[Extreme] Pass non raggiungibile ({p['name']}), provo prossimo")
+                            continue
+                        raise
+
+        if data is None:
+            data = await _call_graphhopper([seg_start, seg_end], custom_model)
 
         path = data["paths"][0]
         coords = path["points"]["coordinates"]  # [lng, lat, ele]
@@ -151,7 +269,8 @@ async def get_route(
         ele = round(c[2], 1) if len(c) >= 3 else 0.0
         elevation_profile.append({"d": round(d / 1000, 3), "ele": ele})
 
-    elevations = [p["ele"] for p in elevation_profile]
+    # Considera validi solo valori > 0 (ele=0 indica assenza di dati SRTM)
+    valid_elevations = [p["ele"] for p in elevation_profile if p["ele"] > 0]
     total_road = sum(agg_road_class.values()) or 1
     total_surf = sum(agg_surface.values()) or 1
 
@@ -160,10 +279,11 @@ async def get_route(
         "duration_s": total_duration,
         "geometry": all_geometry,
         "elevation": elevation_profile,
-        "max_elevation": max(elevations) if elevations else None,
-        "min_elevation": min(elevations) if elevations else None,
+        "max_elevation": max(valid_elevations) if valid_elevations else None,
+        "min_elevation": min(valid_elevations) if valid_elevations else None,
         "road_stats": {
             "road_class": {k: round(v / total_road * 100, 1) for k, v in agg_road_class.items()},
             "surface": {k: round(v / total_surf * 100, 1) for k, v in agg_surface.items()},
         },
+        "extreme_log": extreme_log,
     }

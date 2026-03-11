@@ -33,7 +33,7 @@ except ImportError:
 
 # ── Configurazione ──────────────────────────────────────────────────────────
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent
 SHUTDOWN_FLAG = ROOT / ".shutdown_requested"
 
 SERVICES = [

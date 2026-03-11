@@ -5,4 +5,4 @@ cd "$PROJECT_DIR"
 # Installa rich se mancante
 python3 -c "import rich" 2>/dev/null || pip3 install rich --quiet
 
-python3 start.py "$@"
+python3 scripts/start.py "$@"

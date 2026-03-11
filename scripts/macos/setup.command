@@ -9,4 +9,4 @@ echo ""
 # Installa rich se mancante
 python3 -c "import rich" 2>/dev/null || pip3 install rich --quiet
 
-python3 setup.py "$@"
+python3 scripts/setup.py "$@"

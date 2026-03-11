@@ -20,7 +20,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent
 STATE_FILE = ROOT / "backend" / ".setup-state"
 
 # ── Rich opzionale ───────────────────────────────────────────────────────────
@@ -400,7 +400,7 @@ def download_osm(state: dict) -> dict:
 # ── GraphHopper JAR ──────────────────────────────────────────────────────────
 
 def _get_gh_version() -> str:
-    m = re.search(r'"graphhopper-web-([\d.]+)\.jar"', (ROOT / "start.py").read_text())
+    m = re.search(r'"graphhopper-web-([\d.]+)\.jar"', (ROOT / "scripts" / "start.py").read_text())
     return m.group(1) if m else "10.0"
 
 
@@ -698,7 +698,7 @@ def main() -> None:
             print(f"  Avvio in {i}... (Ctrl+C per annullare)", end="\r", flush=True)
             time.sleep(1)
         print()
-        subprocess.run([sys.executable, str(ROOT / "start.py")])
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "start.py")])
     except KeyboardInterrupt:
         _print("\n[dim]Avvio annullato. Esegui start.bat per avviare manualmente.[/dim]")
 

@@ -43,3 +43,6 @@ npm-debug.log*
 graphhopper/*.jar
 graphhopper/*.pbf
 graphhopper/italy-gh/
+
+# Setup state (locale, non versionato)
+backend/.setup-state

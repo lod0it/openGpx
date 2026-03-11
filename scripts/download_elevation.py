@@ -14,6 +14,8 @@ Dopo il download:
 """
 
 import argparse
+import platform
+import ssl
 import sys
 import urllib.request
 import urllib.error
@@ -58,11 +60,37 @@ def format_bytes(n: int) -> str:
     return f"{n:.1f} GB"
 
 
+def _make_ssl_context() -> ssl.SSLContext:
+    """Crea un SSLContext compatibile con macOS clean install e Linux."""
+    # 1) certifi (se installato nel venv)
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+
+    # 2) macOS: /etc/ssl/cert.pem contiene i root CA di sistema
+    ctx = ssl.create_default_context()
+    if platform.system() == "Darwin":
+        try:
+            ctx.load_verify_locations("/etc/ssl/cert.pem")
+            return ctx
+        except (FileNotFoundError, ssl.SSLError):
+            pass
+
+    # 3) Fallback: disabilita verifica con warning esplicito
+    log("SSL verify disabilitato (certifi non trovato, /etc/ssl/cert.pem assente)", "WARN")
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def download_file(url: str, dest: Path) -> bool:
     """Scarica url → dest con progress a console. Ritorna True se ok."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "open-gpx/1.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_make_ssl_context()) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             downloaded = 0
             chunk = 65536

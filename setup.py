@@ -15,6 +15,8 @@ import shutil
 import ssl
 import subprocess
 import sys
+import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -445,6 +447,165 @@ def download_elevation(state: dict) -> dict:
     return state
 
 
+# ── Prebuild grafo GraphHopper ───────────────────────────────────────────────
+
+def build_gh_graph(state: dict) -> dict:
+    _print("\n[bold]Step 8 — Prebuild grafo GraphHopper[/bold]")
+    gh_dir = ROOT / "graphhopper"
+
+    # Leggi graph.location da config.yml
+    cfg = gh_dir / "config.yml"
+    graph_location = "italy-gh"
+    if cfg.exists():
+        m = re.search(r"graph\.location:\s*(\S+)", cfg.read_text(encoding="utf-8"))
+        if m:
+            graph_location = m.group(1)
+
+    graph_dir = gh_dir / graph_location
+
+    # Controlla se già costruito
+    if graph_dir.exists() and any(graph_dir.iterdir()):
+        _skip(f"Grafo già presente: {graph_location}/ — skip")
+        state["graph_built"] = True
+        state["graph_location"] = graph_location
+        return state
+
+    jar_name = state.get("jar_filename", "")
+    if not jar_name or not (gh_dir / jar_name).exists():
+        _warn("JAR non trovato nello state — prebuild saltato")
+        return state
+
+    osm_name = state.get("osm_filename", "")
+    _warn(f"Prima esecuzione: costruzione grafo da [bold]{osm_name}[/bold]")
+    _warn("Questa operazione richiede 10–30 minuti per regioni grandi (es. Italy)")
+    _print("")
+
+    PHASES = [
+        ("start creating graph",      "Importazione OSM",          5),
+        ("pass1 finished",            "Lettura waypoint",          20),
+        ("pass2 finished",            "Costruzione archi",         45),
+        ("Finished graph:",           "Grafo base completato",     60),
+        ("LandmarkStorage",           "Preparazione landmarks",    72),
+        ("PrepareRoutingSubnetworks", "Ottimizzazione rete",       85),
+        ("Started @",                 "GraphHopper pronto!",       100),
+    ]
+
+    current_pct = [0]
+    current_desc = ["Avvio GraphHopper..."]
+    last_log_line = [""]
+    done_event = threading.Event()
+
+    cmd = ["java", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=gh_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except FileNotFoundError:
+        _fail("Java non trovato — installa Java 11+ e riesegui setup")
+        return state
+
+    def _read_gh_output() -> None:
+        for raw in proc.stdout:  # type: ignore[union-attr]
+            line = raw.decode("utf-8", errors="replace").rstrip()
+            if not line:
+                continue
+            last_log_line[0] = line
+            for keyword, desc, pct in PHASES:
+                if keyword in line:
+                    if pct > current_pct[0]:
+                        current_pct[0] = pct
+                        current_desc[0] = desc
+                    if pct == 100:
+                        done_event.set()
+                    break
+        done_event.set()  # EOF = processo terminato
+
+    def _poll_health() -> None:
+        while not done_event.is_set():
+            try:
+                urllib.request.urlopen("http://localhost:8989/health", timeout=2)
+                current_pct[0] = 100
+                current_desc[0] = "GraphHopper pronto!"
+                done_event.set()
+                return
+            except Exception:
+                pass
+            time.sleep(3)
+
+    threading.Thread(target=_read_gh_output, daemon=True).start()
+    threading.Thread(target=_poll_health, daemon=True).start()
+
+    start_ts = time.time()
+    try:
+        if _rich:
+            from rich.live import Live
+            from rich.text import Text
+
+            with Live(console=console, refresh_per_second=2) as live:  # type: ignore[arg-type]
+                while not done_event.is_set():
+                    elapsed = int(time.time() - start_ts)
+                    mins, secs = divmod(elapsed, 60)
+                    pct = current_pct[0]
+                    bar_len = 40
+                    filled = int(bar_len * pct / 100)
+                    bar = "█" * filled + "░" * (bar_len - filled)
+                    log_tail = last_log_line[0][-90:] if last_log_line[0] else ""
+                    txt = Text()
+                    txt.append(f"  [{bar}] {pct:3d}%  {mins}m {secs:02d}s\n", style="cyan")
+                    txt.append(f"  {current_desc[0]}\n", style="bold white")
+                    if log_tail:
+                        txt.append(f"  {log_tail}", style="dim")
+                    live.update(txt)
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(0.5)
+        else:
+            while not done_event.is_set():
+                elapsed = int(time.time() - start_ts)
+                mins, secs = divmod(elapsed, 60)
+                print(
+                    f"\r  [{current_pct[0]:3d}%] {current_desc[0]} ({mins}m {secs:02d}s)   ",
+                    end="", flush=True,
+                )
+                if proc.poll() is not None:
+                    break
+                time.sleep(2)
+            print()
+    except KeyboardInterrupt:
+        _warn("\nInterrotto — rimozione grafo parziale...")
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        shutil.rmtree(graph_dir, ignore_errors=True)
+        _fail("Prebuild annullato. Riesegui setup per completare.")
+        sys.exit(1)
+
+    # Termina GH (al prossimo avvio caricherà il grafo dalla cache, molto più veloce)
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    elapsed_total = int(time.time() - start_ts)
+    mins, secs = divmod(elapsed_total, 60)
+    if current_pct[0] >= 100:
+        _ok(f"Grafo costruito in {mins}m {secs:02d}s → {graph_location}/")
+        state["graph_built"] = True
+        state["graph_location"] = graph_location
+    else:
+        _fail("Costruzione grafo non completata — controlla che Java sia installato correttamente.")
+        shutil.rmtree(graph_dir, ignore_errors=True)
+
+    return state
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -479,6 +640,12 @@ def main() -> None:
     # Step 7 (elevation)
     state = download_elevation(state)
 
+    # Step 8 — Prebuild grafo GH (solo se OSM e JAR presenti)
+    if state.get("osm_filename") and state.get("jar_filename"):
+        state = build_gh_graph(state)
+    else:
+        _warn("OSM o JAR mancanti — il grafo verrà costruito al primo avvio (lento)")
+
     # Salva stato
     state["schema_version"] = 1
     state["setup_completed"] = True
@@ -493,7 +660,6 @@ def main() -> None:
             cmd_file.chmod(cmd_file.stat().st_mode | 0o111)
 
     _print("\n[bold green]Setup completato![/bold green] Avvio applicazione...\n")
-    import time
     try:
         for i in range(3, 0, -1):
             print(f"  Avvio in {i}... (Ctrl+C per annullare)", end="\r", flush=True)

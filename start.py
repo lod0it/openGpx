@@ -8,6 +8,7 @@ Uso:
     python start.py --no-gh      # salta GraphHopper (già avviato)
 """
 
+import json
 import os
 import sys
 import subprocess
@@ -138,34 +139,63 @@ def print_banner(services_to_start: list[dict]) -> None:
     console.print()
 
 
+# ── Setup state ───────────────────────────────────────────────────────────────
+
+def load_state() -> dict:
+    state_file = ROOT / "backend" / ".setup-state"
+    try:
+        return json.loads(state_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 # ── Prerequisiti ─────────────────────────────────────────────────────────────
 
 def check_prerequisites(skip_gh: bool) -> bool:
     ok = True
+    state = load_state()
+
+    if not state:
+        warn("Setup non completato — esegui setup.command prima di avviare")
 
     if not skip_gh:
-        jar = ROOT / "graphhopper" / "graphhopper-web-10.0.jar"
-        pbf = ROOT / "graphhopper" / "italy-latest.osm.pbf"
-
         java_ok = subprocess.run(
-            ["java", "-version"],
-            capture_output=True
+            ["java", "-version"], capture_output=True
         ).returncode == 0
-
         if not java_ok:
-            warn("Java non trovato — GraphHopper saltato")
-            return False  # caller decide
-        if not jar.exists():
-            warn(f"JAR non trovato: {jar.relative_to(ROOT)}")
-            ok = False
-        if not pbf.exists():
-            warn(f"OSM non trovato: {pbf.relative_to(ROOT)}")
-            ok = False
+            warn("Java non trovato — GraphHopper non potrà avviarsi")
+            return False
+
+        gh_dir = ROOT / "graphhopper"
+
+        # JAR: usa il nome dallo state, oppure cerca il primo disponibile
+        jar_name = state.get("jar_filename", "")
+        if jar_name:
+            if not (gh_dir / jar_name).exists():
+                warn(f"JAR non trovato: graphhopper/{jar_name}")
+                ok = False
+        else:
+            jars = list(gh_dir.glob("graphhopper-web-*.jar"))
+            if not jars:
+                warn("Nessun GraphHopper JAR trovato in graphhopper/")
+                ok = False
+
+        # OSM: usa il nome dallo state, oppure cerca il primo .pbf disponibile
+        osm_name = state.get("osm_filename", "")
+        if osm_name:
+            if not (gh_dir / osm_name).exists():
+                warn(f"File OSM non trovato: graphhopper/{osm_name}")
+                ok = False
+        else:
+            pbfs = list(gh_dir.glob("*.pbf"))
+            if not pbfs:
+                warn("Nessun file OSM .pbf trovato in graphhopper/")
+                ok = False
 
     is_win = sys.platform == "win32"
     venv_py = ROOT / "backend" / ".venv" / ("Scripts" if is_win else "bin") / ("python.exe" if is_win else "python")
     if not venv_py.exists():
-        warn("Virtualenv backend non trovato — esegui setup.py")
+        warn("Virtualenv backend non trovato — esegui setup.command")
         ok = False
 
     nm = ROOT / "frontend" / "node_modules"
@@ -249,11 +279,26 @@ def _reader(key: str, proc: subprocess.Popen) -> None:
 
 def start_graphhopper() -> subprocess.Popen | None:
     gh_dir = ROOT / "graphhopper"
-    cmd = [
-        "java",
-        "-jar", str(gh_dir / "graphhopper-web-10.0.jar"),
-        "server", "config.yml",
-    ]
+
+    # Leggi il nome del JAR dallo state; fallback: primo JAR trovato
+    state = load_state()
+    jar_name = state.get("jar_filename", "")
+    if not jar_name or not (gh_dir / jar_name).exists():
+        jars = list(gh_dir.glob("graphhopper-web-*.jar"))
+        if not jars:
+            err("Nessun GraphHopper JAR trovato in graphhopper/")
+            return None
+        jar_name = jars[0].name
+
+    graph_location = state.get("graph_location", "")
+    if graph_location:
+        graph_dir = gh_dir / graph_location
+        if graph_dir.exists() and any(graph_dir.iterdir()):
+            info(f"GH: caricamento grafo dalla cache ({graph_location}/)")
+        else:
+            info("GH: prima build — costruzione grafo in corso (potrebbe richiedere minuti)...")
+
+    cmd = ["java", "-jar", str(gh_dir / jar_name), "server", "config.yml"]
     try:
         proc = subprocess.Popen(
             cmd,
@@ -383,22 +428,42 @@ def main() -> None:
     info("[bold green]Tutti i servizi avviati.[/bold green] Premi [bold]Ctrl+C[/bold] per fermare.")
     console.print()
 
-    # Apri il browser quando il frontend è pronto
-    def _open_browser():
-        url = "http://localhost:5173"
+    # Apri il browser quando frontend E GraphHopper sono pronti
+    def _open_browser(wait_for_gh: bool) -> None:
+        fe_url = "http://localhost:5173"
+        gh_url = "http://localhost:8989/health"
+
+        # Attendi frontend
         for _ in range(60):
             if _stop.is_set():
                 return
             try:
-                urllib.request.urlopen(url, timeout=1)
-                info(f"Browser aperto su [cyan]{url}[/cyan]")
-                webbrowser.open(url)
-                return
+                urllib.request.urlopen(fe_url, timeout=1)
+                break
             except Exception:
                 time.sleep(1)
-        warn("Timeout: frontend non raggiunto, browser non aperto")
+        else:
+            warn("Timeout: frontend non raggiunto, browser non aperto")
+            return
 
-    threading.Thread(target=_open_browser, daemon=True).start()
+        # Attendi GraphHopper (max 5 min — al primo avvio post-setup è già cachato)
+        if wait_for_gh:
+            info("In attesa che GraphHopper sia pronto...")
+            for _ in range(150):  # 150 × 2s = 5 min
+                if _stop.is_set():
+                    return
+                try:
+                    urllib.request.urlopen(gh_url, timeout=2)
+                    break
+                except Exception:
+                    time.sleep(2)
+            else:
+                warn("Timeout GraphHopper — il routing potrebbe non funzionare ancora")
+
+        info(f"Browser aperto su [cyan]{fe_url}[/cyan]")
+        webbrowser.open(fe_url)
+
+    threading.Thread(target=_open_browser, args=(not skip_gh,), daemon=True).start()
 
     # Attesa Ctrl+C o chiusura browser
     try:

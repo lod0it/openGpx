@@ -130,8 +130,18 @@ async def _call_graphhopper(points: list[dict], custom_model: dict) -> dict:
         payload["custom_model"] = custom_model
 
     url = f"{settings.graphhopper_url}/route"
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(url, json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload)
+    except httpx.ConnectError:
+        raise RuntimeError(
+            "GraphHopper non raggiungibile — potrebbe essere ancora in avvio. "
+            "Attendi qualche secondo e riprova."
+        )
+    except httpx.TimeoutException:
+        raise RuntimeError("GraphHopper timeout — il server è sovraccarico o ancora in avvio.")
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Errore di connessione a GraphHopper: {exc}")
 
     if resp.status_code != 200:
         raise RuntimeError(f"GraphHopper error {resp.status_code}: {resp.text}")

@@ -1,6 +1,7 @@
 # Claude Code
 .claude/
-
+# Claude Commands
+bugs.md
 # Python
 backend/.venv/
 backend/__pycache__/

@@ -46,7 +46,7 @@ async def heartbeat_monitor() -> None:
 
 @router.get("/system/update")
 async def run_update() -> StreamingResponse:
-    """Esegue update.py come subprocess e streama l'output via SSE."""
+    """Esegue scripts/update.py come subprocess e streama l'output via SSE."""
 
     async def generate():
         env = {"COLUMNS": "100", "PYTHONUNBUFFERED": "1"}
@@ -55,7 +55,7 @@ async def run_update() -> StreamingResponse:
 
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
-            str(ROOT / "update.py"),
+            str(ROOT / "scripts" / "update.py"),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=ROOT,

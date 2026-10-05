@@ -8,7 +8,7 @@ graphhopper:
 
   profiles_ch: []
 
-  graph.encoded_values: car_access, car_average_speed, toll, road_class, road_environment, curvature, surface, max_speed
+  graph.encoded_values: car_access, car_average_speed, road_access, toll, road_class, road_environment, curvature, surface, max_speed
 
   graph.elevation.provider: cgiar
   graph.elevation.cache_dir: elevation-cache

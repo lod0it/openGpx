@@ -254,6 +254,15 @@ The adventure slider (0–100) controls GraphHopper's custom model in real time:
 
 Per-segment filter checkboxes override the adventure level for individual legs of the route.
 
+### Private roads
+
+Routes stay off private roads, driveways and private property:
+
+- Ways tagged `access`/`motor_vehicle`/`motorcar`/`vehicle` = `private` (and private gates/barriers) are blocked by GraphHopper's `car_access` itself.
+- `access=destination` / `customers` ways and service roads (`highway=service`: driveways, parking aisles, private estates) get a heavy priority cap in the custom model, so they are only used to reach a waypoint that sits on them.
+
+Penalties are used instead of hard blocks so that a waypoint placed on or next to a private way still routes.
+
 ### Extreme routing
 
 Enable the **Extreme** toggle on any waypoint to force the route through a mountain pass near that leg:
@@ -412,14 +421,18 @@ graphhopper:
   profiles:
     - name: motorcycle
       custom_model_files: [car.json]
-  graph.encoded_values: car_access, car_average_speed, toll, road_class,
-                        road_environment, curvature, surface, max_speed
+  graph.encoded_values: car_access, car_average_speed, road_access, toll,
+                        road_class, road_environment, curvature, surface, max_speed
   graph.elevation.provider: cgiar
   graph.elevation.cache_dir: elevation-cache
   import.osm.ignored_highways: footway, cycleway, path, pedestrian, steps
 ```
 
 `profiles_ch: []` disables Contraction Hierarchies so that the custom model (adventure level) can be applied dynamically per request.
+
+`road_access` is used to keep routes off private roads and properties (see [Private roads](#private-roads)).
+
+> **Changing `graph.encoded_values` requires a graph rebuild.** Encoded values are written into the graph at import time, so after adding or removing one (e.g. `road_access`) stop GraphHopper, delete `graphhopper/italy-gh/` and start it again; the first start re-imports the OSM data (~15 min). Until the graph is rebuilt, GraphHopper rejects the custom model sent by the backend and every route request fails. `scripts/update.py` warns when `config.yml` has changed.
 
 ### Backend environment (`.env`)
 

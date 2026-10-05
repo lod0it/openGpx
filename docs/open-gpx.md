@@ -87,6 +87,9 @@ GraphHopper supports per-request custom models that re-weight roads at query tim
 | `prefer_unpaved=True` | 2× priority multiplier on GRAVEL, DIRT, GROUND, GRASS |
 | `prefer_secondary=True` | Extra bonus on SECONDARY |
 | `extreme=True` | All of the above maximized; forces maximum curvature weighting |
+| always | Priority capped (`limit_to`, applied after all bonuses) on `road_access == PRIVATE` (0.01), `DESTINATION`/`CUSTOMERS` (0.1) and `road_class == SERVICE` (0.2) |
+
+Private roads: in GraphHopper 10 `car_access` (with the default `block_private=true`) already blocks ways whose `motorcar`/`motor_vehicle`/`vehicle`/`access` tag is `private`, `delivery`, `agricultural` or `forestry`, plus private barriers. It does not block `access=destination`/`customers`, and there is no encoded value for `service=driveway`, so those are handled by the caps above (`road_class == SERVICE` covers driveways, parking aisles and private estate roads). Caps are penalties, not `multiply_by 0`: a zero priority makes the edge unsnappable, which can turn a waypoint on a private way into `PointNotFoundException`/`ConnectionNotFoundException`, including the pass and nudge points of extreme mode.
 
 #### 2. Route assembly (`get_route`)
 
@@ -229,7 +232,7 @@ Translations live in `frontend/src/i18n/translations.ts` as a flat key–value m
 `graphhopper/config.yml` contains the full GraphHopper configuration. Key points:
 
 - `profiles_ch: []` — Contraction Hierarchies disabled. Required for dynamic custom models. Routes take slightly longer to compute (~1–3 s) but custom weighting works per request.
-- `graph.encoded_values` — includes `curvature` and `surface`, which are used by the custom model builder for adventure-level tuning.
+- `graph.encoded_values` — includes `curvature` and `surface`, which are used by the custom model builder for adventure-level tuning, and `road_access`, used to penalize private/destination roads. Encoded values are stored in the graph at import time: after changing this list, stop GraphHopper, delete `graphhopper/italy-gh/` and restart to rebuild the graph (~15 min). A custom model that references an encoded value missing from the graph is rejected with HTTP 400, so routing fails until the rebuild.
 - `graph.elevation.provider: cgiar` — uses CGIAR SRTM 90 m elevation data. Tiles are downloaded automatically on demand and cached in `elevation-cache/`.
 - `import.osm.ignored_highways` — footways, cycleways, and pedestrian paths are excluded from the graph.
 

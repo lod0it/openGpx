@@ -109,7 +109,18 @@ def build_custom_model(adventure: int, filters: dict) -> dict:
         priority.append({"if": "curvature > 0.6", "multiply_by": "2.0"})
         priority.append({"if": "curvature > 0.8", "multiply_by": "3.5"})
 
-    model: dict = {"priority": priority} if priority else {}
+    # Private roads and properties. car_access (GH 10, block_private=true) already
+    # blocks access=private/delivery/agricultural/forestry ways and private barriers,
+    # but lets access=destination/customers and service roads (driveways, parking
+    # aisles) through. limit_to caps priority after all bonuses above, so curvature
+    # or road-class boosts can't make these edges attractive again. Heavy penalties
+    # instead of multiply_by 0 keep these edges snappable, so a waypoint sitting on
+    # a private way still routes instead of failing with PointNotFound.
+    priority.append({"if": "road_access == PRIVATE", "limit_to": "0.01"})
+    priority.append({"if": "road_access == DESTINATION || road_access == CUSTOMERS", "limit_to": "0.1"})
+    priority.append({"if": "road_class == SERVICE", "limit_to": "0.2"})
+
+    model: dict = {"priority": priority}
     if adventure > 0:
         model["distance_influence"] = round(adventure * 1.5)
     if filters.get("extreme"):

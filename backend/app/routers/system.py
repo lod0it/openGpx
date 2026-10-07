@@ -4,8 +4,11 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
+
+from app.config import settings
 
 router = APIRouter()
 log = logging.getLogger("opengpx")
@@ -18,6 +21,20 @@ _HEARTBEAT_CHECK   = 10   # ogni quanti secondi controlla
 SHUTDOWN_FLAG      = ROOT / ".shutdown_requested"
 
 _last_heartbeat: float | None = None   # None = nessun browser mai connesso
+
+
+@router.get("/system/status")
+async def status():
+    """Riporta lo stato del backend e la readiness di GraphHopper."""
+    gh = "starting"
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{settings.graphhopper_url}/health")
+        if r.status_code == 200:
+            gh = "ready"
+    except httpx.HTTPError as e:
+        log.debug("GraphHopper non raggiungibile: %s", e)
+    return {"backend": "ok", "graphhopper": gh}
 
 
 @router.post("/system/heartbeat")

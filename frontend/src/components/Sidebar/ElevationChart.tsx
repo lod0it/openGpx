@@ -1,6 +1,5 @@
 import { useRouteStore } from '../../store/useRouteStore'
 import { useT } from '../../i18n/useT'
-import type { ElevationPoint } from '../../types'
 import styles from './ElevationChart.module.css'
 
 const W = 256
@@ -9,10 +8,12 @@ const PAD = { top: 6, right: 4, bottom: 18, left: 30 }
 const INNER_W = W - PAD.left - PAD.right
 const INNER_H = H - PAD.top - PAD.bottom
 
-function Chart({ data, maxEle, minEle }: { data: ElevationPoint[]; maxEle: number; minEle: number }) {
+type ValidPoint = { d: number; ele: number }
+
+function Chart({ data, maxEle, minEle }: { data: ValidPoint[]; maxEle: number; minEle: number }) {
   if (data.length < 2) return null
 
-  const maxD = data[data.length - 1].d
+  const maxD = data[data.length - 1].d || 1
   const eleRange = maxEle - minEle || 1
 
   const sx = (d: number) => PAD.left + (d / maxD) * INNER_W
@@ -50,18 +51,21 @@ export function ElevationChart() {
   const elevation = useRouteStore((s) => s.elevation)
   const maxElevation = useRouteStore((s) => s.maxElevation)
   const minElevation = useRouteStore((s) => s.minElevation)
+  const elevationAvailable = useRouteStore((s) => s.elevationAvailable)
   const geometry = useRouteStore((s) => s.geometry)
   const t = useT()
 
   if (geometry.length < 2) return null
 
-  const hasData = elevation.length >= 2 && maxElevation !== null && minElevation !== null
+  const validPoints = elevation.filter((p): p is ValidPoint => p.ele !== null)
+  const hasData =
+    elevationAvailable !== false && validPoints.length >= 2 && maxElevation !== null && minElevation !== null
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.title}>{t('elevation.title')}</div>
       {hasData ? (
-        <Chart data={elevation} maxEle={maxElevation!} minEle={minElevation!} />
+        <Chart data={validPoints}maxEle={maxElevation!} minEle={minElevation!} />
       ) : (
         <div className={styles.noData}>{t('elevation.no_data')}</div>
       )}

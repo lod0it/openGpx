@@ -51,7 +51,7 @@ export const defaultGlobalFilters: GlobalFilters = {
 
 export interface ElevationPoint {
   d: number
-  ele: number
+  ele: number | null
 }
 
 export interface RoadStats {

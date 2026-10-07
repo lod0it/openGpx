@@ -15,6 +15,7 @@ interface RouteStore {
   elevation: ElevationPoint[]
   maxElevation: number | null
   minElevation: number | null
+  elevationAvailable: boolean | null
   roadStats: RoadStats | null
   extremeLog: ExtremeLogEntry[]
   isLoading: boolean
@@ -34,6 +35,7 @@ interface RouteStore {
     elevation: ElevationPoint[]
     maxElevation: number | null
     minElevation: number | null
+    elevationAvailable: boolean | null
     roadStats: RoadStats
     extremeLog: ExtremeLogEntry[]
   }) => void
@@ -53,6 +55,7 @@ export const useRouteStore = create<RouteStore>((set) => ({
   elevation: [],
   maxElevation: null,
   minElevation: null,
+  elevationAvailable: null,
   roadStats: null,
   extremeLog: [],
   isLoading: false,
@@ -103,8 +106,8 @@ export const useRouteStore = create<RouteStore>((set) => ({
       globalFilters: { ...state.globalFilters, ...patch },
     })),
 
-  setRoute: ({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, extremeLog }) =>
-    set({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, roadStats, extremeLog, isLoading: false, error: null }),
+  setRoute: ({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, elevationAvailable, roadStats, extremeLog }) =>
+    set({ geometry, distanceM, durationS, elevation, maxElevation, minElevation, elevationAvailable, roadStats, extremeLog, isLoading: false, error: null }),
 
   setLoading: (isLoading) => set({ isLoading }),
 
@@ -120,6 +123,7 @@ export const useRouteStore = create<RouteStore>((set) => ({
       elevation: [],
       maxElevation: null,
       minElevation: null,
+      elevationAvailable: null,
       roadStats: null,
       extremeLog: [],
       error: null,

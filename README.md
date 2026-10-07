@@ -105,7 +105,11 @@ Open the `scripts\win\` folder in File Explorer and double-click **`setup.bat`**
 
 When it finishes, the app opens automatically in your browser.
 
-**To launch the app next time:** double-click `scripts\win\start.bat`.
+**To launch the app next time:** double-click `scripts\win\start.bat`. No console window stays open: the services run in the background (logs in `logs/`) and the app opens in your browser when ready.
+
+- If startup fails, a page `logs/error.html` opens in the browser with the problem and the last lines of the failing service's log.
+- To see the live output instead, double-click `scripts\win\start_debug.bat`.
+- To stop the app, double-click `scripts\win\stop.bat`.
 
 ---
 
@@ -203,8 +207,11 @@ npm install
 ### Windows
 
 ```bat
-scripts\win\start.bat
+scripts\win\start.bat        # windowless (pythonw), logs in logs/
+scripts\win\start_debug.bat  # foreground, live output (start.py --debug)
 ```
+
+`start.bat` runs `scripts/start.py` through `pythonw` (falling back to `pyw`, then `python` in a console) so no terminal stays open. Output goes to `logs/` (one log per service, truncated at each start). `start_debug.bat` keeps the console open with color-coded unified output.
 
 If GraphHopper is already running, skip it with:
 
@@ -222,6 +229,8 @@ scripts/macos/start_debug.command  # foreground, live output (start.py --debug)
 `start.command` launches GraphHopper, the FastAPI backend, and the Vite dev server detached from the terminal (`logs/start.log` plus one log per service in `logs/`) and then closes its Terminal window via `osascript`. The first run triggers the macOS Automation prompt (*Terminal* controlling *Terminal*); if denied, the window stays open but the app keeps running. Stop the services with `scripts/macos/stop.command`.
 
 `start_debug.command` runs in the foreground with color-coded unified log output. Press `Ctrl+C` to stop all services.
+
+If startup fails in windowless mode (both OSes), `logs/error.html` is generated and opened in the browser. It lists the issues and the last 20 lines of the failing service's log.
 
 ### Manual start (any OS)
 
@@ -446,6 +455,11 @@ GRAPHHOPPER_URL=http://localhost:8989
 5. Start GraphHopper — the graph will be rebuilt on first run.
 
 ## Troubleshooting
+
+**The app does not open after double-clicking start**
+- Open `logs/error.html` if it was generated, and check the per-service logs in `logs/`
+- Run `start_debug.bat` (Windows) or `start_debug.command` (macOS) to see the full live output
+- macOS: if the Terminal window does not close, the Automation permission was denied; enable it in *System Settings → Privacy & Security → Automation → Terminal*
 
 **GraphHopper does not start**
 - Verify Java is installed: `java -version`

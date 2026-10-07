@@ -7,6 +7,29 @@ from app.services.overpass import fetch_passes_around
 
 logger = logging.getLogger("opengpx")
 
+# Cache del flag elevation letto da GET /info (None = non ancora letto)
+_graph_elevation: bool | None = None
+
+
+async def get_graph_elevation() -> bool | None:
+    """
+    Legge una sola volta il flag `elevation` da GraphHopper GET /info.
+    Restituisce None se /info non e' raggiungibile (ritenta alla chiamata successiva).
+    """
+    global _graph_elevation
+    if _graph_elevation is not None:
+        return _graph_elevation
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{settings.graphhopper_url}/info")
+        resp.raise_for_status()
+        _graph_elevation = bool(resp.json().get("elevation", False))
+        logger.info(f"[Elevation] GraphHopper /info elevation={_graph_elevation}")
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning(f"[Elevation] GraphHopper /info non disponibile: {exc}")
+        return None
+    return _graph_elevation
+
 
 def _haversine_m(a: list, b: list) -> float:
     """Distanza in metri tra due punti [lng, lat, ...]."""
@@ -273,11 +296,25 @@ async def get_route(
 
     elevation_profile: list[dict] = []
     d = 0.0
+    ele_missing = 0
+    ele_zero = 0
     for j, c in enumerate(all_coords_3d):
         if j > 0:
             d += _haversine_m(all_coords_3d[j - 1], c)
-        ele = round(c[2], 1) if len(c) >= 3 else 0.0
+        if len(c) >= 3 and c[2] is not None:
+            ele = round(c[2], 1)
+            if ele == 0:
+                ele_zero += 1
+        else:
+            ele = 0.0
+            ele_missing += 1
         elevation_profile.append({"d": round(d / 1000, 3), "ele": ele})
+
+    elevation_available = await get_graph_elevation()
+    logger.info(
+        f"[Elevation] graph_elevation={elevation_available} points={len(all_coords_3d)} "
+        f"zero={ele_zero} missing={ele_missing}"
+    )
 
     # Considera validi solo valori > 0 (ele=0 indica assenza di dati SRTM)
     valid_elevations = [p["ele"] for p in elevation_profile if p["ele"] > 0]
@@ -296,4 +333,5 @@ async def get_route(
             "surface": {k: round(v / total_surf * 100, 1) for k, v in agg_surface.items()},
         },
         "extreme_log": extreme_log,
+        "elevation_available": elevation_available,
     }

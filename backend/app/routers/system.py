@@ -84,7 +84,7 @@ async def run_update() -> StreamingResponse:
 
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
-            str(ROOT / "update.py"),
+            str(ROOT / "scripts" / "update.py"),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=ROOT,

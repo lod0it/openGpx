@@ -49,3 +49,6 @@ graphhopper/elevation-cache/
 
 # Setup state (locale, non versionato)
 backend/.setup-state
+
+# Service logs (start.py)
+logs/

@@ -6,6 +6,7 @@ Avvia GraphHopper, Backend e Frontend in un unico terminale.
 Uso:
     python start.py              # avvia tutto
     python start.py --no-gh      # salta GraphHopper (già avviato)
+    python start.py --debug      # stream Rich con prefissi (default: silenzioso, log in logs/)
 """
 
 import json
@@ -28,13 +29,18 @@ try:
     from rich.text import Text
     from rich import box
 except ImportError:
-    print("Dipendenza mancante: pip install rich")
+    if sys.stdout is not None:
+        print("Dipendenza mancante: pip install rich")
     sys.exit(1)
 
 # ── Configurazione ──────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent.parent
 SHUTDOWN_FLAG = ROOT / ".shutdown_requested"
+LOGS_DIR = ROOT / "logs"
+
+# Windows: nessuna finestra console per i processi figli
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 SERVICES = [
     {
@@ -68,12 +74,28 @@ PREFIX_W = 5
 console = Console()
 _lock   = threading.Lock()
 _stop   = threading.Event()
+_debug  = False
+_log_files: dict[str, object] = {}
 
 _status: dict[str, str] = {s["key"]: "starting" for s in SERVICES}
 _pids:   dict[str, int]  = {}
 _procs:  dict[str, subprocess.Popen] = {}
 
 # ── Helper output ───────────────────────────────────────────────────────────
+
+def _print(*args, **kwargs) -> None:
+    """console.print solo in --debug e se esiste uno stdout (pythonw: None)."""
+    if _debug and sys.stdout is not None:
+        console.print(*args, **kwargs)
+
+
+def _run(*args, **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run senza finestra e senza stdin ereditato (pythonw)."""
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
+    if _NO_WINDOW:
+        kwargs.setdefault("creationflags", _NO_WINDOW)
+    return subprocess.run(*args, **kwargs)
+
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
@@ -96,22 +118,22 @@ def log(key: str, line: str, level: str = "info") -> None:
         body = line_clean
 
     with _lock:
-        console.print(f"{ts_markup} {pfx_markup} {body}", highlight=False)
+        _print(f"{ts_markup} {pfx_markup} {body}", highlight=False)
 
 
 def info(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold white][DASH ][/bold white] {msg}")
+        _print(f"[dim]{_ts()}[/dim] [bold white][DASH ][/bold white] {msg}")
 
 
 def warn(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold yellow][DASH ][/bold yellow] [yellow]{msg}[/yellow]")
+        _print(f"[dim]{_ts()}[/dim] [bold yellow][DASH ][/bold yellow] [yellow]{msg}[/yellow]")
 
 
 def err(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold red][DASH ][/bold red] [red]{msg}[/red]")
+        _print(f"[dim]{_ts()}[/dim] [bold red][DASH ][/bold red] [red]{msg}[/red]")
 
 
 # ── Banner iniziale ─────────────────────────────────────────────────────────
@@ -135,8 +157,8 @@ def print_banner(services_to_start: list[dict]) -> None:
         subtitle="Ctrl+C per fermare tutto",
         border_style="bright_blue",
     )
-    console.print(panel)
-    console.print()
+    _print(panel)
+    _print()
 
 
 # ── Setup state ───────────────────────────────────────────────────────────────
@@ -159,7 +181,7 @@ def check_prerequisites(skip_gh: bool) -> bool:
         warn("Setup non completato — esegui setup.command prima di avviare")
 
     if not skip_gh:
-        java_ok = subprocess.run(
+        java_ok = _run(
             ["java", "-version"], capture_output=True
         ).returncode == 0
         if not java_ok:
@@ -213,7 +235,7 @@ def kill_port(port: int) -> None:
     is_win = sys.platform == "win32"
     try:
         if is_win:
-            r = subprocess.run(
+            r = _run(
                 f'netstat -ano | findstr ":{port} "',
                 shell=True, capture_output=True, text=True,
             )
@@ -223,18 +245,18 @@ def kill_port(port: int) -> None:
                 if "LISTENING" in line and len(parts) >= 5:
                     pids.add(parts[-1])
             for pid in pids:
-                subprocess.run(
+                _run(
                     ["taskkill", "/PID", pid, "/F", "/T"],
                     capture_output=True,
                 )
                 info(f"Processo PID {pid} sulla porta {port} terminato")
         else:
-            r = subprocess.run(
+            r = _run(
                 ["lsof", "-ti", f":{port}"],
                 capture_output=True, text=True,
             )
             for pid in r.stdout.split():
-                subprocess.run(["kill", "-9", pid], capture_output=True)
+                _run(["kill", "-9", pid], capture_output=True)
                 info(f"Processo PID {pid} sulla porta {port} terminato")
     except Exception:
         pass
@@ -287,6 +309,21 @@ def _jvm_xmx() -> str:
         return "4g"
 
 
+def _popen_io(key: str) -> dict:
+    """Debug: pipe letta dal reader. Headless: output diretto su logs/<key>.log."""
+    kw: dict = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
+    if _NO_WINDOW:
+        kw["creationflags"] = _NO_WINDOW
+    if _debug:
+        kw["stdout"] = subprocess.PIPE
+    else:
+        LOGS_DIR.mkdir(exist_ok=True)
+        f = open(LOGS_DIR / f"{key}.log", "wb")  # troncato ad ogni avvio
+        _log_files[key] = f
+        kw["stdout"] = f
+    return kw
+
+
 # ── Avvio processi ────────────────────────────────────────────────────────────
 
 def start_graphhopper() -> subprocess.Popen | None:
@@ -316,8 +353,7 @@ def start_graphhopper() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             cmd,
             cwd=gh_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("GH"),
         )
         return proc
     except FileNotFoundError:
@@ -337,8 +373,7 @@ def start_backend() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             cmd,
             cwd=ROOT / "backend",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("BE"),
             env=env,
         )
         return proc
@@ -353,8 +388,7 @@ def start_frontend() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             "npm run dev",
             cwd=ROOT / "frontend",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("FE"),
             shell=True,
         )
         return proc
@@ -367,7 +401,7 @@ def start_frontend() -> subprocess.Popen | None:
 
 def shutdown() -> None:
     _stop.set()
-    console.print()
+    _print()
     info("[bold]Arresto in corso...[/bold]")
 
     for key, proc in list(_procs.items()):
@@ -381,8 +415,8 @@ def shutdown() -> None:
             except Exception:
                 pass
 
-    console.print()
-    console.print(Panel("[bold green]Tutti i servizi fermati.[/bold green]", border_style="green"))
+    _print()
+    _print(Panel("[bold green]Tutti i servizi fermati.[/bold green]", border_style="green"))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -390,14 +424,18 @@ def shutdown() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-gpx dev dashboard")
     parser.add_argument("--no-gh", action="store_true", help="Salta GraphHopper")
+    parser.add_argument("--debug", action="store_true", help="Stream Rich con prefissi (default: log su file)")
     args = parser.parse_args()
+
+    global _debug
+    _debug = args.debug
 
     skip_gh = args.no_gh
     active_services = [s for s in SERVICES if not (skip_gh and s["key"] == "GH")]
 
     print_banner(active_services)
     check_prerequisites(skip_gh)
-    console.print()
+    _print()
 
     # Rimuovi eventuale flag di shutdown residuo
     SHUTDOWN_FLAG.unlink(missing_ok=True)
@@ -405,7 +443,7 @@ def main() -> None:
     # Libera le porte prima di avviare (evita "Address already in use")
     info("Pulizia porte in uso...")
     free_ports(active_services)
-    console.print()
+    _print()
 
     # Avvio processi
     starters = {
@@ -429,22 +467,22 @@ def main() -> None:
         _status[key] = "running"
         info(f"{svc['label']} avviato (PID {proc.pid})")
 
-        t = threading.Thread(target=_reader, args=(key, proc), daemon=True)
-        t.start()
-        threads.append(t)
+        if _debug:
+            t = threading.Thread(target=_reader, args=(key, proc), daemon=True)
+            t.start()
+            threads.append(t)
 
     if not _procs:
         err("Nessun servizio avviato. Controlla i prerequisiti.")
         sys.exit(1)
 
-    console.print()
+    _print()
     info("[bold green]Tutti i servizi avviati.[/bold green] Premi [bold]Ctrl+C[/bold] per fermare.")
-    console.print()
+    _print()
 
     # Apri il browser quando frontend E GraphHopper sono pronti
-    def _open_browser(wait_for_gh: bool) -> None:
+    def _open_browser() -> None:
         fe_url = "http://localhost:5173"
-        gh_url = "http://localhost:8989/health"
 
         # Attendi frontend
         for _ in range(60):
@@ -459,24 +497,10 @@ def main() -> None:
             warn("Timeout: frontend non raggiunto, browser non aperto")
             return
 
-        # Attendi GraphHopper (max 5 min — al primo avvio post-setup è già cachato)
-        if wait_for_gh:
-            info("In attesa che GraphHopper sia pronto...")
-            for _ in range(150):  # 150 × 2s = 5 min
-                if _stop.is_set():
-                    return
-                try:
-                    urllib.request.urlopen(gh_url, timeout=2)
-                    break
-                except Exception:
-                    time.sleep(2)
-            else:
-                warn("Timeout GraphHopper — il routing potrebbe non funzionare ancora")
-
         info(f"Browser aperto su [cyan]{fe_url}[/cyan]")
         webbrowser.open(fe_url)
 
-    threading.Thread(target=_open_browser, args=(not skip_gh,), daemon=True).start()
+    threading.Thread(target=_open_browser, daemon=True).start()
 
     # Attesa Ctrl+C o chiusura browser
     try:

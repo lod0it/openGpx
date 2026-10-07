@@ -29,6 +29,7 @@ export function useRouteCalculation() {
             elevation: result.elevation,
             maxElevation: result.max_elevation,
             minElevation: result.min_elevation,
+            elevationAvailable: result.elevation_available,
             roadStats: result.road_stats,
             extremeLog: result.extreme_log ?? [],
           })

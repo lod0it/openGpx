@@ -51,7 +51,7 @@ export const defaultGlobalFilters: GlobalFilters = {
 
 export interface ElevationPoint {
   d: number
-  ele: number
+  ele: number | null
 }
 
 export interface RoadStats {
@@ -80,6 +80,7 @@ export interface RouteResult {
   min_elevation: number | null
   road_stats: RoadStats
   extreme_log: ExtremeLogEntry[]
+  elevation_available: boolean | null
 }
 
 export interface GeocodeResult {

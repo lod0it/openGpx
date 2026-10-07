@@ -36,7 +36,7 @@ class RouteRequest(BaseModel):
 
 class ElevationPoint(BaseModel):
     d: float
-    ele: float
+    ele: Optional[float] = None
 
 
 class RoadStats(BaseModel):
@@ -65,6 +65,8 @@ class RouteResponse(BaseModel):
     min_elevation: Optional[float]
     road_stats: RoadStats
     extreme_log: list[ExtremeLogEntry] = []
+    # Flag elevation di GraphHopper /info (None = /info non raggiungibile)
+    elevation_available: Optional[bool] = None
 
 
 @router.post("/route", response_model=RouteResponse)

@@ -7,14 +7,15 @@ Uso:
     python scripts/download_elevation.py
     python scripts/download_elevation.py --check   # verifica solo, non scarica
 
-Dopo il download:
-    1. Cancella la cartella  graphhopper/italy-gh/
-    2. Riavvia GraphHopper  (java -jar graphhopper-web-10.0.jar server config.yml)
-    3. Attendi il re-import (~15-30 min) — questa volta con quota 3D
+Se il grafo esiste già ma è stato costruito senza tile, lo script propone
+(default No) di cancellarlo; la ricostruzione si fa con scripts/setup.py.
 """
 
 import argparse
+import json
 import platform
+import re
+import shutil
 import ssl
 import sys
 import urllib.request
@@ -26,6 +27,7 @@ from datetime import datetime
 
 ROOT       = Path(__file__).parent.parent
 CACHE_DIR  = ROOT / "graphhopper" / "elevation-cache"
+STATE_FILE = ROOT / "backend" / ".setup-state"
 
 # CGIAR SRTM V4.1 — stesso URL usato da GraphHopper internamente
 CGIAR_BASE = "https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF"
@@ -121,6 +123,7 @@ def download_file(url: str, dest: Path) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download tile SRTM per l'Italia")
     parser.add_argument("--check", action="store_true", help="Mostra lo stato senza scaricare")
+    parser.add_argument("--no-rebuild-prompt", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     print()
@@ -157,11 +160,14 @@ def main() -> None:
     if not missing:
         log("Tutte le tile sono già presenti.")
         print()
+        if not args.no_rebuild_prompt:
+            offer_graph_rebuild()
         _print_next_steps()
         return
 
     if args.check:
         log("Modalità --check: nessun download eseguito.")
+        offer_graph_rebuild()
         return
 
     # Download
@@ -197,24 +203,98 @@ def main() -> None:
     if fail > 0:
         _print_alternative()
     else:
+        if not args.no_rebuild_prompt:
+            offer_graph_rebuild()
         _print_next_steps()
+
+
+def load_state() -> dict:
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def tiles_present() -> bool:
+    """True se almeno una tile SRTM valida è nella cache."""
+    return any(
+        (CACHE_DIR / f"srtm_{c:02d}_{r:02d}.zip").exists()
+        and (CACHE_DIR / f"srtm_{c:02d}_{r:02d}.zip").stat().st_size > 100_000
+        for c, r in ITALY_TILES
+    )
+
+
+def graph_dir() -> Path | None:
+    """Cartella del grafo (da state o config.yml), None se assente/vuota."""
+    gh_dir = ROOT / "graphhopper"
+    location = load_state().get("graph_location", "")
+    if not location:
+        location = "italy-gh"
+        cfg = gh_dir / "config.yml"
+        if cfg.exists():
+            m = re.search(r"graph\.location:\s*(\S+)", cfg.read_text(encoding="utf-8"))
+            if m:
+                location = m.group(1)
+    path = gh_dir / location
+    return path if path.is_dir() and any(path.iterdir()) else None
+
+
+def graph_is_stale() -> bool:
+    """Tile presenti ma grafo costruito senza (o stato sconosciuto)."""
+    return (
+        tiles_present()
+        and graph_dir() is not None
+        and not load_state().get("graph_has_elevation", False)
+    )
+
+
+def offer_graph_rebuild() -> None:
+    """Se il grafo è obsoleto propone (default No) di cancellarlo per ricostruirlo."""
+    if not graph_is_stale():
+        return
+    path = graph_dir()
+    log("Il grafo esistente è stato costruito senza quota: le tile non hanno effetto.", "WARN")
+    if "--check" in sys.argv:
+        print(f"    Suggerimento: rilancia setup.py (o questo script senza --check) per ricostruire {path}")
+        print()
+        return
+    try:
+        answer = input(f"  Cancellare {path.name}/ e ricostruirlo con la quota? [y/N]: ").strip().lower()
+    except EOFError:
+        answer = "n"
+    if answer != "y":
+        log("Grafo lasciato invariato.")
+        print()
+        return
+    shutil.rmtree(path, ignore_errors=True)
+    state = load_state()
+    state["graph_built"] = False
+    state["graph_has_elevation"] = False
+    try:
+        STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except OSError as e:
+        log(f"Impossibile aggiornare lo state: {e}", "WARN")
+    log(f"Grafo {path.name}/ cancellato. Esegui setup.py per ricostruirlo (~15-30 min).", "OK")
+    print()
 
 
 def _print_next_steps() -> None:
     gh_dir = ROOT / "graphhopper"
-    graph_dir = gh_dir / "italy-gh"
     print("PROSSIMI PASSI")
     print("-" * 40)
-    print("1. Cancella il grafo esistente (necessario per re-import con quota):")
-    print()
-    print(f"     rmdir /s /q \"{graph_dir}\"")
-    print()
-    print("2. Riavvia GraphHopper (import ~15-30 minuti):")
-    print()
-    print(f"     cd \"{gh_dir}\"")
-    print(f"     java -jar graphhopper-web-10.0.jar server config.yml")
-    print()
-    print("3. Quando GH è pronto (log: 'Started server'), riavvia il Backend")
+    if graph_dir() is None:
+        print("1. Ricostruisci il grafo (import ~15-30 minuti, con quota 3D):")
+        print()
+        print("     python scripts/setup.py")
+        print()
+    elif graph_is_stale():
+        print("1. Il grafo esistente non usa le tile. Per ricostruirlo con la quota,")
+        print("   rilancia questo script (senza --check) o setup.py e rispondi 'y'.")
+        print()
+    else:
+        print("1. Il grafo include già la quota: nessuna ricostruzione necessaria.")
+        print()
+    print("2. Riavvia GraphHopper e il Backend (start.bat / scripts/start.py)")
     print("   e ricalcola un percorso: il profilo altimetrico sarà disponibile.")
     print()
 

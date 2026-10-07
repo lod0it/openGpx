@@ -440,7 +440,7 @@ def download_elevation(state: dict) -> dict:
 
     if answer == "y":
         _info("Avvio download elevation tiles...")
-        subprocess.run([sys.executable, str(script)], check=False)
+        subprocess.run([sys.executable, str(script), "--no-rebuild-prompt"], check=False)
     else:
         _skip("Elevation tiles saltate")
 
@@ -457,6 +457,11 @@ def _jvm_xmx() -> str:
         return f"{mb}m"
     except Exception:
         return "4g"
+
+
+def _srtm_tiles_present() -> bool:
+    cache = ROOT / "graphhopper" / "elevation-cache"
+    return any(f.stat().st_size > 100_000 for f in cache.glob("srtm_*.zip")) if cache.is_dir() else False
 
 
 # ── Prebuild grafo GraphHopper ───────────────────────────────────────────────
@@ -477,10 +482,25 @@ def build_gh_graph(state: dict) -> dict:
 
     # Controlla se già costruito
     if graph_dir.exists() and any(graph_dir.iterdir()):
-        _skip(f"Grafo già presente: {graph_location}/ — skip")
-        state["graph_built"] = True
-        state["graph_location"] = graph_location
-        return state
+        if _srtm_tiles_present() and not state.get("graph_has_elevation", False):
+            _warn("Le tile SRTM esistono ma il grafo è stato costruito senza quota.")
+            try:
+                answer = input(f"  Cancellare {graph_location}/ e ricostruirlo con la quota? [y/N]: ").strip().lower()
+            except EOFError:
+                answer = "n"
+            if answer == "y":
+                shutil.rmtree(graph_dir, ignore_errors=True)
+                state["graph_built"] = False
+            else:
+                _skip("Grafo lasciato invariato")
+                state["graph_built"] = True
+                state["graph_location"] = graph_location
+                return state
+        else:
+            _skip(f"Grafo già presente: {graph_location}/ — skip")
+            state["graph_built"] = True
+            state["graph_location"] = graph_location
+            return state
 
     jar_name = state.get("jar_filename", "")
     if not jar_name or not (gh_dir / jar_name).exists():
@@ -620,6 +640,7 @@ def build_gh_graph(state: dict) -> dict:
         _ok(f"Grafo costruito in {mins}m {secs:02d}s → {graph_location}/")
         state["graph_built"] = True
         state["graph_location"] = graph_location
+        state["graph_has_elevation"] = _srtm_tiles_present()
     else:
         _fail(f"Costruzione grafo non completata (progress: {current_pct[0]}%).")
         if error_lines:

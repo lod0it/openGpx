@@ -9,6 +9,7 @@ Uso:
     python start.py --debug      # stream Rich con prefissi (default: silenzioso, log in logs/)
 """
 
+import atexit
 import json
 import os
 import sys
@@ -37,6 +38,8 @@ except ImportError:
 
 ROOT = Path(__file__).parent.parent
 SHUTDOWN_FLAG = ROOT / ".shutdown_requested"
+LOCK_FILE = ROOT / ".opengpx.lock"
+FE_URL = "http://localhost:5173"
 LOGS_DIR = ROOT / "logs"
 
 # Windows: nessuna finestra console per i processi figli
@@ -228,6 +231,66 @@ def check_prerequisites(skip_gh: bool) -> bool:
     return ok
 
 
+# ── Istanza singola ───────────────────────────────────────────────────────────
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: esiste
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _read_lock_pid() -> int:
+    # Riprova brevemente: un'istanza concorrente può aver creato il file senza averlo ancora scritto
+    for _ in range(5):
+        try:
+            return int(LOCK_FILE.read_text(encoding="utf-8").strip())
+        except FileNotFoundError:
+            return 0
+        except (OSError, ValueError):
+            time.sleep(0.2)
+    return 0
+
+
+def release_lock() -> None:
+    if _read_lock_pid() == os.getpid():
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+def acquire_lock() -> int:
+    """Crea il lock file. Ritorna 0 se acquisito, altrimenti il PID dell'istanza attiva."""
+    for _ in range(3):
+        try:
+            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            pid = _read_lock_pid()
+            if _pid_alive(pid):
+                return pid
+            LOCK_FILE.unlink(missing_ok=True)  # lock stale: PID morto
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        atexit.register(release_lock)
+        return 0
+    return 0
+
+
 # ── Pulizia porte ─────────────────────────────────────────────────────────────
 
 def kill_port(port: int) -> None:
@@ -314,6 +377,8 @@ def _popen_io(key: str) -> dict:
     kw: dict = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
     if _NO_WINDOW:
         kw["creationflags"] = _NO_WINDOW
+    if sys.platform != "win32":
+        kw["start_new_session"] = True  # process group proprio → killpg sull'albero
     if _debug:
         kw["stdout"] = subprocess.PIPE
     else:
@@ -399,21 +464,47 @@ def start_frontend() -> subprocess.Popen | None:
 
 # ── Stop pulito ───────────────────────────────────────────────────────────────
 
-def shutdown() -> None:
+def kill_tree(proc: subprocess.Popen) -> None:
+    """Termina il processo e tutti i discendenti (node, worker uvicorn, ...)."""
+    if sys.platform == "win32":
+        _run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        # Il leader può essere uscito lasciando figli nel gruppo
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def shutdown(services: list[dict]) -> None:
     _stop.set()
     _print()
     info("[bold]Arresto in corso...[/bold]")
 
     for key, proc in list(_procs.items()):
         try:
-            proc.terminate()
-            proc.wait(timeout=5)
+            kill_tree(proc)
             info(f"{key} terminato")
         except Exception:
             try:
                 proc.kill()
             except Exception:
                 pass
+
+    # Rete di sicurezza: discendenti orfani ancora in ascolto sulle nostre porte
+    free_ports(services)
 
     _print()
     _print(Panel("[bold green]Tutti i servizi fermati.[/bold green]", border_style="green"))
@@ -429,6 +520,11 @@ def main() -> None:
 
     global _debug
     _debug = args.debug
+
+    # Istanza già attiva: apri solo il browser, non toccare porte né processi
+    if acquire_lock():
+        webbrowser.open(FE_URL)
+        return
 
     skip_gh = args.no_gh
     active_services = [s for s in SERVICES if not (skip_gh and s["key"] == "GH")]
@@ -482,7 +578,7 @@ def main() -> None:
 
     # Apri il browser quando frontend E GraphHopper sono pronti
     def _open_browser() -> None:
-        fe_url = "http://localhost:5173"
+        fe_url = FE_URL
 
         # Attendi frontend
         for _ in range(60):
@@ -523,7 +619,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        shutdown()
+        shutdown(active_services)
 
 
 if __name__ == "__main__":

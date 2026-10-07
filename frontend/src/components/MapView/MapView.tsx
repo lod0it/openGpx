@@ -23,6 +23,18 @@ const TILE_LAYERS = {
     attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a> | OpenStreetMap contributors',
     maxZoom: 20,
   },
+  esriTopo: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, USGS, and the GIS User Community',
+    maxZoom: 19,
+  },
+}
+
+const HILLSHADE_OVERLAY = {
+  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
+  attribution: 'Hillshade &copy; Esri, USGS, NOAA',
+  maxZoom: 16,
+  opacity: 0.5,
 }
 
 const TRAILS_OVERLAY = {
@@ -35,6 +47,7 @@ const TRAILS_OVERLAY = {
 export function MapView() {
   const baseLayer = useMapStore((s) => s.baseLayer)
   const trailsOverlay = useMapStore((s) => s.trailsOverlay)
+  const hillshadeOverlay = useMapStore((s) => s.hillshadeOverlay)
   const tile = TILE_LAYERS[baseLayer]
 
   return (
@@ -49,6 +62,14 @@ export function MapView() {
         url={tile.url}
         maxZoom={tile.maxZoom}
       />
+      {hillshadeOverlay && (
+        <TileLayer
+          attribution={HILLSHADE_OVERLAY.attribution}
+          url={HILLSHADE_OVERLAY.url}
+          maxZoom={HILLSHADE_OVERLAY.maxZoom}
+          opacity={HILLSHADE_OVERLAY.opacity}
+        />
+      )}
       {trailsOverlay && (
         <TileLayer
           attribution={TRAILS_OVERLAY.attribution}

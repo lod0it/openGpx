@@ -62,7 +62,11 @@ Open the `scripts/macos/` folder in Finder and double-click **`setup.command`**.
 
 When it finishes, the app opens automatically in your browser.
 
-**To launch the app next time:** double-click `scripts/macos/start.command`.
+**To launch the app next time:** double-click `scripts/macos/start.command`. The services start in the background (logs in `logs/`) and the Terminal window closes by itself.
+
+- The first time, macOS asks to let *Terminal* control *Terminal* (Automation permission): click *OK*. If you deny it, the window simply stays open while the app keeps running; you can re-enable it in *System Settings → Privacy & Security → Automation → Terminal*.
+- To see the live output instead, double-click `scripts/macos/start_debug.command` (`Ctrl+C` stops everything).
+- To stop the app, double-click `scripts/macos/stop.command`.
 
 ---
 
@@ -211,10 +215,13 @@ scripts\win\start.bat --no-gh
 ### macOS
 
 ```bash
-scripts/macos/start.command
+scripts/macos/start.command        # background, logs in logs/, closes the Terminal window
+scripts/macos/start_debug.command  # foreground, live output (start.py --debug)
 ```
 
-This launches GraphHopper, the FastAPI backend, and the Vite dev server in a single terminal with color-coded unified log output. Press `Ctrl+C` to stop all services.
+`start.command` launches GraphHopper, the FastAPI backend, and the Vite dev server detached from the terminal (`logs/start.log` plus one log per service in `logs/`) and then closes its Terminal window via `osascript`. The first run triggers the macOS Automation prompt (*Terminal* controlling *Terminal*); if denied, the window stays open but the app keeps running. Stop the services with `scripts/macos/stop.command`.
+
+`start_debug.command` runs in the foreground with color-coded unified log output. Press `Ctrl+C` to stop all services.
 
 ### Manual start (any OS)
 
@@ -387,6 +394,7 @@ open-gpx/
     ├── macos/
     │   ├── setup.command           # Double-click to install (macOS)
     │   ├── start.command           # Double-click to launch (macOS)
+│   ├── start_debug.command     # Launch with live output (macOS)
     │   ├── update.command          # Double-click to update (macOS)
     │   ├── stop.command            # Stop all services (macOS)
     │   └── download_elevation.command

@@ -19,6 +19,7 @@ import signal
 import time
 import argparse
 import webbrowser
+import html
 import urllib.request
 from pathlib import Path
 from datetime import datetime
@@ -82,6 +83,8 @@ _log_files: dict[str, object] = {}
 
 _status: dict[str, str] = {s["key"]: "starting" for s in SERVICES}
 _pids:   dict[str, int]  = {}
+_issues: list[str] = []
+_startup_done = threading.Event()
 _procs:  dict[str, subprocess.Popen] = {}
 
 # ── Helper output ───────────────────────────────────────────────────────────
@@ -139,6 +142,47 @@ def err(msg: str) -> None:
         _print(f"[dim]{_ts()}[/dim] [bold red][DASH ][/bold red] [red]{msg}[/red]")
 
 
+# ── Pagina di errore (headless) ─────────────────────────────────────────────
+
+def _tail(key: str, n: int = 20) -> str:
+    try:
+        lines = (LOGS_DIR / f"{key}.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-n:])
+
+
+def show_error_page(message: str, key: str | None = None) -> None:
+    """Headless: scrive logs/error.html (statico, nessun server) e lo apre nel browser."""
+    details = "".join(f"<li>{html.escape(i)}</li>" for i in _issues)
+    log_html = ""
+    if key:
+        log_html = (
+            f"<h2>Last 20 lines of logs/{html.escape(key)}.log</h2>"
+            f"<pre>{html.escape(_tail(key)) or '(log is empty or missing)'}</pre>"
+        )
+    page = (
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>open-gpx - startup failed</title>"
+        "<style>body{font-family:sans-serif;max-width:60em;margin:2em auto;padding:0 1em}"
+        "pre{background:#eee;padding:1em;overflow:auto}</style></head><body>"
+        "<h1>open-gpx failed to start</h1>"
+        f"<p>{html.escape(message)}</p>"
+        + (f"<ul>{details}</ul>" if details else "")
+        + "<p>For full output, run start_debug (start_debug.bat on Windows, "
+        "start_debug.command on macOS) and read the messages in the console.</p>"
+        + log_html
+        + "</body></html>"
+    )
+    try:
+        LOGS_DIR.mkdir(exist_ok=True)
+        out = LOGS_DIR / "error.html"
+        out.write_text(page, encoding="utf-8")
+        webbrowser.open(out.resolve().as_uri())
+    except Exception:
+        pass
+
+
 # ── Banner iniziale ─────────────────────────────────────────────────────────
 
 def print_banner(services_to_start: list[dict]) -> None:
@@ -176,6 +220,11 @@ def load_state() -> dict:
 
 # ── Prerequisiti ─────────────────────────────────────────────────────────────
 
+def _problem(msg: str) -> None:
+    _issues.append(msg)
+    warn(msg)
+
+
 def check_prerequisites(skip_gh: bool) -> bool:
     ok = True
     state = load_state()
@@ -188,7 +237,7 @@ def check_prerequisites(skip_gh: bool) -> bool:
             ["java", "-version"], capture_output=True
         ).returncode == 0
         if not java_ok:
-            warn("Java non trovato — GraphHopper non potrà avviarsi")
+            _problem("Java non trovato — GraphHopper non potrà avviarsi")
             return False
 
         gh_dir = ROOT / "graphhopper"
@@ -197,35 +246,35 @@ def check_prerequisites(skip_gh: bool) -> bool:
         jar_name = state.get("jar_filename", "")
         if jar_name:
             if not (gh_dir / jar_name).exists():
-                warn(f"JAR non trovato: graphhopper/{jar_name}")
+                _problem(f"JAR non trovato: graphhopper/{jar_name}")
                 ok = False
         else:
             jars = list(gh_dir.glob("graphhopper-web-*.jar"))
             if not jars:
-                warn("Nessun GraphHopper JAR trovato in graphhopper/")
+                _problem("Nessun GraphHopper JAR trovato in graphhopper/")
                 ok = False
 
         # OSM: usa il nome dallo state, oppure cerca il primo .pbf disponibile
         osm_name = state.get("osm_filename", "")
         if osm_name:
             if not (gh_dir / osm_name).exists():
-                warn(f"File OSM non trovato: graphhopper/{osm_name}")
+                _problem(f"File OSM non trovato: graphhopper/{osm_name}")
                 ok = False
         else:
             pbfs = list(gh_dir.glob("*.pbf"))
             if not pbfs:
-                warn("Nessun file OSM .pbf trovato in graphhopper/")
+                _problem("Nessun file OSM .pbf trovato in graphhopper/")
                 ok = False
 
     is_win = sys.platform == "win32"
     venv_py = ROOT / "backend" / ".venv" / ("Scripts" if is_win else "bin") / ("python.exe" if is_win else "python")
     if not venv_py.exists():
-        warn("Virtualenv backend non trovato — esegui setup.command")
+        _problem("Virtualenv backend non trovato — esegui setup.command")
         ok = False
 
     nm = ROOT / "frontend" / "node_modules"
     if not nm.exists():
-        warn("node_modules non trovato — esegui: cd frontend && npm install")
+        _problem("node_modules non trovato — esegui: cd frontend && npm install")
         ok = False
 
     return ok
@@ -530,8 +579,11 @@ def main() -> None:
     active_services = [s for s in SERVICES if not (skip_gh and s["key"] == "GH")]
 
     print_banner(active_services)
-    check_prerequisites(skip_gh)
+    prereq_ok = check_prerequisites(skip_gh)
     _print()
+    if not prereq_ok and not _debug:
+        show_error_page("Startup prerequisites are missing or failed.")
+        sys.exit(1)
 
     # Rimuovi eventuale flag di shutdown residuo
     SHUTDOWN_FLAG.unlink(missing_ok=True)
@@ -556,6 +608,11 @@ def main() -> None:
         proc = starters[key]()
         if proc is None:
             _status[key] = "failed"
+            if not _debug:
+                _issues.append(f"{svc['label']} could not be started.")
+                show_error_page(f"{svc['label']} could not be started.", key)
+                shutdown(active_services)
+                sys.exit(1)
             continue
 
         _procs[key] = proc
@@ -577,22 +634,41 @@ def main() -> None:
     _print()
 
     # Apri il browser quando frontend E GraphHopper sono pronti
+    failed_key: list[str] = []
+
+    def _wait(url: str, tries: int) -> bool:
+        for _ in range(tries):
+            if _stop.is_set():
+                return False
+            try:
+                urllib.request.urlopen(url, timeout=1)
+                return True
+            except Exception:
+                time.sleep(1)
+        return False
+
     def _open_browser() -> None:
         fe_url = FE_URL
 
-        # Attendi frontend
-        for _ in range(60):
+        if not _wait(fe_url, 60):
             if _stop.is_set():
                 return
-            try:
-                urllib.request.urlopen(fe_url, timeout=1)
-                break
-            except Exception:
-                time.sleep(1)
-        else:
             warn("Timeout: frontend non raggiunto, browser non aperto")
+            if not _debug:
+                _issues.append("Frontend did not respond within 60 seconds.")
+                failed_key.append("FE")
             return
 
+        if "GH" in _procs and not _wait(SERVICES[0]["url"], 600):
+            if _stop.is_set():
+                return
+            warn("Timeout: GraphHopper non pronto")
+            if not _debug:
+                _issues.append("GraphHopper did not become ready within 10 minutes.")
+                failed_key.append("GH")
+            return
+
+        _startup_done.set()
         info(f"Browser aperto su [cyan]{fe_url}[/cyan]")
         webbrowser.open(fe_url)
 
@@ -603,6 +679,14 @@ def main() -> None:
         signal.signal(signal.SIGINT, lambda s, f: None)   # gestito da except
         while not _stop.is_set():
             # Controlla se tutti i processi sono morti
+            if not _debug and not _startup_done.is_set():
+                dead = [k for k, p in _procs.items() if p.poll() is not None]
+                if dead or failed_key:
+                    key = dead[0] if dead else failed_key[0]
+                    if dead:
+                        _issues.append(f"{key} exited during startup.")
+                    show_error_page("A service failed during startup.", key)
+                    break
             alive = [k for k, p in _procs.items() if p.poll() is None]
             if not alive:
                 err("Tutti i servizi si sono fermati.")

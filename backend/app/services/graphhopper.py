@@ -306,7 +306,7 @@ async def get_route(
             if ele == 0:
                 ele_zero += 1
         else:
-            ele = 0.0
+            ele = None
             ele_missing += 1
         elevation_profile.append({"d": round(d / 1000, 3), "ele": ele})
 
@@ -316,8 +316,7 @@ async def get_route(
         f"zero={ele_zero} missing={ele_missing}"
     )
 
-    # Considera validi solo valori > 0 (ele=0 indica assenza di dati SRTM)
-    valid_elevations = [p["ele"] for p in elevation_profile if p["ele"] > 0]
+    valid_elevations = [p["ele"] for p in elevation_profile if p["ele"] is not None]
     total_road = sum(agg_road_class.values()) or 1
     total_surf = sum(agg_surface.values()) or 1
 

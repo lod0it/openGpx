@@ -36,7 +36,7 @@ class RouteRequest(BaseModel):
 
 class ElevationPoint(BaseModel):
     d: float
-    ele: float
+    ele: Optional[float] = None
 
 
 class RoadStats(BaseModel):

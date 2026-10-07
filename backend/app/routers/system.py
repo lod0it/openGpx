@@ -18,23 +18,28 @@ ROOT = Path(__file__).parent.parent.parent.parent
 
 _HEARTBEAT_TIMEOUT = 30   # secondi senza heartbeat → shutdown
 _HEARTBEAT_CHECK   = 10   # ogni quanti secondi controlla
+_FIRST_HEARTBEAT_TIMEOUT = 300   # secondi di attesa del primo heartbeat → shutdown
 SHUTDOWN_FLAG      = ROOT / ".shutdown_requested"
 
 _last_heartbeat: float | None = None   # None = nessun browser mai connesso
 
 
-@router.get("/system/status")
-async def status():
-    """Riporta lo stato del backend e la readiness di GraphHopper."""
-    gh = "starting"
+async def _graphhopper_state() -> str:
+    """Probe di GraphHopper: "ready" oppure "starting"."""
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{settings.graphhopper_url}/health")
         if r.status_code == 200:
-            gh = "ready"
+            return "ready"
     except httpx.HTTPError as e:
         log.debug("GraphHopper non raggiungibile: %s", e)
-    return {"backend": "ok", "graphhopper": gh}
+    return "starting"
+
+
+@router.get("/system/status")
+async def status():
+    """Riporta lo stato del backend e la readiness di GraphHopper."""
+    return {"backend": "ok", "graphhopper": await _graphhopper_state()}
 
 
 @router.post("/system/heartbeat")
@@ -46,19 +51,26 @@ async def heartbeat():
 
 async def heartbeat_monitor() -> None:
     """Task asyncio avviato al boot: scrive il flag di shutdown se il browser si disconnette."""
-    global _last_heartbeat
+    started = time.monotonic()
     while True:
         await asyncio.sleep(_HEARTBEAT_CHECK)
         if _last_heartbeat is None:
-            continue  # aspetta la prima connessione
-        elapsed = time.monotonic() - _last_heartbeat
-        if elapsed > _HEARTBEAT_TIMEOUT:
+            waited = time.monotonic() - started
+            if waited <= _FIRST_HEARTBEAT_TIMEOUT:
+                continue  # aspetta la prima connessione
+            log.info("Nessun browser connesso dopo %.0fs → shutdown", waited)
+        else:
+            elapsed = time.monotonic() - _last_heartbeat
+            if elapsed <= _HEARTBEAT_TIMEOUT:
+                continue
+            if await _graphhopper_state() == "starting":
+                continue  # build del grafo in corso: non interromperlo
             log.info("Browser disconnesso (heartbeat timeout %.0fs) → shutdown", elapsed)
-            try:
-                SHUTDOWN_FLAG.write_text("1")
-            except Exception as e:
-                log.error("Impossibile scrivere shutdown flag: %s", e)
-            break
+        try:
+            SHUTDOWN_FLAG.write_text("1")
+        except Exception as e:
+            log.error("Impossibile scrivere shutdown flag: %s", e)
+        break
 
 
 @router.get("/system/update")

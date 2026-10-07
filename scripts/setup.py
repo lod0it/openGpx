@@ -698,7 +698,18 @@ def main() -> None:
             print(f"  Avvio in {i}... (Ctrl+C per annullare)", end="\r", flush=True)
             time.sleep(1)
         print()
-        subprocess.run([sys.executable, str(ROOT / "scripts" / "start.py")])
+        flags = 0
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts" / "start.py")],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            start_new_session=sys.platform != "win32",
+        )
     except KeyboardInterrupt:
         _print("\n[dim]Avvio annullato. Esegui start.bat per avviare manualmente.[/dim]")
 

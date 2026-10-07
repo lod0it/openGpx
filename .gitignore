@@ -49,3 +49,5 @@ graphhopper/elevation-cache/
 
 # Setup state (locale, non versionato)
 backend/.setup-state
+.board-worktrees/
+.claude/board/tasks.json.lock

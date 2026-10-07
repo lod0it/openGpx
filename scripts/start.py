@@ -6,8 +6,10 @@ Avvia GraphHopper, Backend e Frontend in un unico terminale.
 Uso:
     python start.py              # avvia tutto
     python start.py --no-gh      # salta GraphHopper (già avviato)
+    python start.py --debug      # stream Rich con prefissi (default: silenzioso, log in logs/)
 """
 
+import atexit
 import json
 import os
 import sys
@@ -17,6 +19,7 @@ import signal
 import time
 import argparse
 import webbrowser
+import html
 import urllib.request
 from pathlib import Path
 from datetime import datetime
@@ -28,13 +31,20 @@ try:
     from rich.text import Text
     from rich import box
 except ImportError:
-    print("Dipendenza mancante: pip install rich")
+    if sys.stdout is not None:
+        print("Dipendenza mancante: pip install rich")
     sys.exit(1)
 
 # ── Configurazione ──────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent.parent
 SHUTDOWN_FLAG = ROOT / ".shutdown_requested"
+LOCK_FILE = ROOT / ".opengpx.lock"
+FE_URL = "http://localhost:5173"
+LOGS_DIR = ROOT / "logs"
+
+# Windows: nessuna finestra console per i processi figli
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 SERVICES = [
     {
@@ -68,12 +78,30 @@ PREFIX_W = 5
 console = Console()
 _lock   = threading.Lock()
 _stop   = threading.Event()
+_debug  = False
+_log_files: dict[str, object] = {}
 
 _status: dict[str, str] = {s["key"]: "starting" for s in SERVICES}
 _pids:   dict[str, int]  = {}
+_issues: list[str] = []
+_startup_done = threading.Event()
 _procs:  dict[str, subprocess.Popen] = {}
 
 # ── Helper output ───────────────────────────────────────────────────────────
+
+def _print(*args, **kwargs) -> None:
+    """console.print solo in --debug e se esiste uno stdout (pythonw: None)."""
+    if _debug and sys.stdout is not None:
+        console.print(*args, **kwargs)
+
+
+def _run(*args, **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run senza finestra e senza stdin ereditato (pythonw)."""
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
+    if _NO_WINDOW:
+        kwargs.setdefault("creationflags", _NO_WINDOW)
+    return subprocess.run(*args, **kwargs)
+
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
@@ -96,22 +124,63 @@ def log(key: str, line: str, level: str = "info") -> None:
         body = line_clean
 
     with _lock:
-        console.print(f"{ts_markup} {pfx_markup} {body}", highlight=False)
+        _print(f"{ts_markup} {pfx_markup} {body}", highlight=False)
 
 
 def info(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold white][DASH ][/bold white] {msg}")
+        _print(f"[dim]{_ts()}[/dim] [bold white][DASH ][/bold white] {msg}")
 
 
 def warn(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold yellow][DASH ][/bold yellow] [yellow]{msg}[/yellow]")
+        _print(f"[dim]{_ts()}[/dim] [bold yellow][DASH ][/bold yellow] [yellow]{msg}[/yellow]")
 
 
 def err(msg: str) -> None:
     with _lock:
-        console.print(f"[dim]{_ts()}[/dim] [bold red][DASH ][/bold red] [red]{msg}[/red]")
+        _print(f"[dim]{_ts()}[/dim] [bold red][DASH ][/bold red] [red]{msg}[/red]")
+
+
+# ── Pagina di errore (headless) ─────────────────────────────────────────────
+
+def _tail(key: str, n: int = 20) -> str:
+    try:
+        lines = (LOGS_DIR / f"{key}.log").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-n:])
+
+
+def show_error_page(message: str, key: str | None = None) -> None:
+    """Headless: scrive logs/error.html (statico, nessun server) e lo apre nel browser."""
+    details = "".join(f"<li>{html.escape(i)}</li>" for i in _issues)
+    log_html = ""
+    if key:
+        log_html = (
+            f"<h2>Last 20 lines of logs/{html.escape(key)}.log</h2>"
+            f"<pre>{html.escape(_tail(key)) or '(log is empty or missing)'}</pre>"
+        )
+    page = (
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>open-gpx - startup failed</title>"
+        "<style>body{font-family:sans-serif;max-width:60em;margin:2em auto;padding:0 1em}"
+        "pre{background:#eee;padding:1em;overflow:auto}</style></head><body>"
+        "<h1>open-gpx failed to start</h1>"
+        f"<p>{html.escape(message)}</p>"
+        + (f"<ul>{details}</ul>" if details else "")
+        + "<p>For full output, run start_debug (start_debug.bat on Windows, "
+        "start_debug.command on macOS) and read the messages in the console.</p>"
+        + log_html
+        + "</body></html>"
+    )
+    try:
+        LOGS_DIR.mkdir(exist_ok=True)
+        out = LOGS_DIR / "error.html"
+        out.write_text(page, encoding="utf-8")
+        webbrowser.open(out.resolve().as_uri())
+    except Exception:
+        pass
 
 
 # ── Banner iniziale ─────────────────────────────────────────────────────────
@@ -135,8 +204,8 @@ def print_banner(services_to_start: list[dict]) -> None:
         subtitle="Ctrl+C per fermare tutto",
         border_style="bright_blue",
     )
-    console.print(panel)
-    console.print()
+    _print(panel)
+    _print()
 
 
 # ── Setup state ───────────────────────────────────────────────────────────────
@@ -151,6 +220,11 @@ def load_state() -> dict:
 
 # ── Prerequisiti ─────────────────────────────────────────────────────────────
 
+def _problem(msg: str) -> None:
+    _issues.append(msg)
+    warn(msg)
+
+
 def check_prerequisites(skip_gh: bool) -> bool:
     ok = True
     state = load_state()
@@ -159,11 +233,11 @@ def check_prerequisites(skip_gh: bool) -> bool:
         warn("Setup non completato — esegui setup.command prima di avviare")
 
     if not skip_gh:
-        java_ok = subprocess.run(
+        java_ok = _run(
             ["java", "-version"], capture_output=True
         ).returncode == 0
         if not java_ok:
-            warn("Java non trovato — GraphHopper non potrà avviarsi")
+            _problem("Java non trovato — GraphHopper non potrà avviarsi")
             return False
 
         gh_dir = ROOT / "graphhopper"
@@ -172,38 +246,98 @@ def check_prerequisites(skip_gh: bool) -> bool:
         jar_name = state.get("jar_filename", "")
         if jar_name:
             if not (gh_dir / jar_name).exists():
-                warn(f"JAR non trovato: graphhopper/{jar_name}")
+                _problem(f"JAR non trovato: graphhopper/{jar_name}")
                 ok = False
         else:
             jars = list(gh_dir.glob("graphhopper-web-*.jar"))
             if not jars:
-                warn("Nessun GraphHopper JAR trovato in graphhopper/")
+                _problem("Nessun GraphHopper JAR trovato in graphhopper/")
                 ok = False
 
         # OSM: usa il nome dallo state, oppure cerca il primo .pbf disponibile
         osm_name = state.get("osm_filename", "")
         if osm_name:
             if not (gh_dir / osm_name).exists():
-                warn(f"File OSM non trovato: graphhopper/{osm_name}")
+                _problem(f"File OSM non trovato: graphhopper/{osm_name}")
                 ok = False
         else:
             pbfs = list(gh_dir.glob("*.pbf"))
             if not pbfs:
-                warn("Nessun file OSM .pbf trovato in graphhopper/")
+                _problem("Nessun file OSM .pbf trovato in graphhopper/")
                 ok = False
 
     is_win = sys.platform == "win32"
     venv_py = ROOT / "backend" / ".venv" / ("Scripts" if is_win else "bin") / ("python.exe" if is_win else "python")
     if not venv_py.exists():
-        warn("Virtualenv backend non trovato — esegui setup.command")
+        _problem("Virtualenv backend non trovato — esegui setup.command")
         ok = False
 
     nm = ROOT / "frontend" / "node_modules"
     if not nm.exists():
-        warn("node_modules non trovato — esegui: cd frontend && npm install")
+        _problem("node_modules non trovato — esegui: cd frontend && npm install")
         ok = False
 
     return ok
+
+
+# ── Istanza singola ───────────────────────────────────────────────────────────
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: esiste
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _read_lock_pid() -> int:
+    # Riprova brevemente: un'istanza concorrente può aver creato il file senza averlo ancora scritto
+    for _ in range(5):
+        try:
+            return int(LOCK_FILE.read_text(encoding="utf-8").strip())
+        except FileNotFoundError:
+            return 0
+        except (OSError, ValueError):
+            time.sleep(0.2)
+    return 0
+
+
+def release_lock() -> None:
+    if _read_lock_pid() == os.getpid():
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+def acquire_lock() -> int:
+    """Crea il lock file. Ritorna 0 se acquisito, altrimenti il PID dell'istanza attiva."""
+    for _ in range(3):
+        try:
+            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            pid = _read_lock_pid()
+            if _pid_alive(pid):
+                return pid
+            LOCK_FILE.unlink(missing_ok=True)  # lock stale: PID morto
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        atexit.register(release_lock)
+        return 0
+    return 0
 
 
 # ── Pulizia porte ─────────────────────────────────────────────────────────────
@@ -213,7 +347,7 @@ def kill_port(port: int) -> None:
     is_win = sys.platform == "win32"
     try:
         if is_win:
-            r = subprocess.run(
+            r = _run(
                 f'netstat -ano | findstr ":{port} "',
                 shell=True, capture_output=True, text=True,
             )
@@ -223,18 +357,18 @@ def kill_port(port: int) -> None:
                 if "LISTENING" in line and len(parts) >= 5:
                     pids.add(parts[-1])
             for pid in pids:
-                subprocess.run(
+                _run(
                     ["taskkill", "/PID", pid, "/F", "/T"],
                     capture_output=True,
                 )
                 info(f"Processo PID {pid} sulla porta {port} terminato")
         else:
-            r = subprocess.run(
+            r = _run(
                 ["lsof", "-ti", f":{port}"],
                 capture_output=True, text=True,
             )
             for pid in r.stdout.split():
-                subprocess.run(["kill", "-9", pid], capture_output=True)
+                _run(["kill", "-9", pid], capture_output=True)
                 info(f"Processo PID {pid} sulla porta {port} terminato")
     except Exception:
         pass
@@ -287,6 +421,23 @@ def _jvm_xmx() -> str:
         return "4g"
 
 
+def _popen_io(key: str) -> dict:
+    """Debug: pipe letta dal reader. Headless: output diretto su logs/<key>.log."""
+    kw: dict = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
+    if _NO_WINDOW:
+        kw["creationflags"] = _NO_WINDOW
+    if sys.platform != "win32":
+        kw["start_new_session"] = True  # process group proprio → killpg sull'albero
+    if _debug:
+        kw["stdout"] = subprocess.PIPE
+    else:
+        LOGS_DIR.mkdir(exist_ok=True)
+        f = open(LOGS_DIR / f"{key}.log", "wb")  # troncato ad ogni avvio
+        _log_files[key] = f
+        kw["stdout"] = f
+    return kw
+
+
 # ── Avvio processi ────────────────────────────────────────────────────────────
 
 def start_graphhopper() -> subprocess.Popen | None:
@@ -316,8 +467,7 @@ def start_graphhopper() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             cmd,
             cwd=gh_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("GH"),
         )
         return proc
     except FileNotFoundError:
@@ -337,8 +487,7 @@ def start_backend() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             cmd,
             cwd=ROOT / "backend",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("BE"),
             env=env,
         )
         return proc
@@ -353,8 +502,7 @@ def start_frontend() -> subprocess.Popen | None:
         proc = subprocess.Popen(
             "npm run dev",
             cwd=ROOT / "frontend",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            **_popen_io("FE"),
             shell=True,
         )
         return proc
@@ -365,15 +513,38 @@ def start_frontend() -> subprocess.Popen | None:
 
 # ── Stop pulito ───────────────────────────────────────────────────────────────
 
-def shutdown() -> None:
+def kill_tree(proc: subprocess.Popen) -> None:
+    """Termina il processo e tutti i discendenti (node, worker uvicorn, ...)."""
+    if sys.platform == "win32":
+        _run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        # Il leader può essere uscito lasciando figli nel gruppo
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def shutdown(services: list[dict]) -> None:
     _stop.set()
-    console.print()
+    _print()
     info("[bold]Arresto in corso...[/bold]")
 
     for key, proc in list(_procs.items()):
         try:
-            proc.terminate()
-            proc.wait(timeout=5)
+            kill_tree(proc)
             info(f"{key} terminato")
         except Exception:
             try:
@@ -381,8 +552,11 @@ def shutdown() -> None:
             except Exception:
                 pass
 
-    console.print()
-    console.print(Panel("[bold green]Tutti i servizi fermati.[/bold green]", border_style="green"))
+    # Rete di sicurezza: discendenti orfani ancora in ascolto sulle nostre porte
+    free_ports(services)
+
+    _print()
+    _print(Panel("[bold green]Tutti i servizi fermati.[/bold green]", border_style="green"))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -390,14 +564,26 @@ def shutdown() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-gpx dev dashboard")
     parser.add_argument("--no-gh", action="store_true", help="Salta GraphHopper")
+    parser.add_argument("--debug", action="store_true", help="Stream Rich con prefissi (default: log su file)")
     args = parser.parse_args()
+
+    global _debug
+    _debug = args.debug
+
+    # Istanza già attiva: apri solo il browser, non toccare porte né processi
+    if acquire_lock():
+        webbrowser.open(FE_URL)
+        return
 
     skip_gh = args.no_gh
     active_services = [s for s in SERVICES if not (skip_gh and s["key"] == "GH")]
 
     print_banner(active_services)
-    check_prerequisites(skip_gh)
-    console.print()
+    prereq_ok = check_prerequisites(skip_gh)
+    _print()
+    if not prereq_ok and not _debug:
+        show_error_page("Startup prerequisites are missing or failed.")
+        sys.exit(1)
 
     # Rimuovi eventuale flag di shutdown residuo
     SHUTDOWN_FLAG.unlink(missing_ok=True)
@@ -405,7 +591,7 @@ def main() -> None:
     # Libera le porte prima di avviare (evita "Address already in use")
     info("Pulizia porte in uso...")
     free_ports(active_services)
-    console.print()
+    _print()
 
     # Avvio processi
     starters = {
@@ -422,6 +608,11 @@ def main() -> None:
         proc = starters[key]()
         if proc is None:
             _status[key] = "failed"
+            if not _debug:
+                _issues.append(f"{svc['label']} could not be started.")
+                show_error_page(f"{svc['label']} could not be started.", key)
+                shutdown(active_services)
+                sys.exit(1)
             continue
 
         _procs[key] = proc
@@ -429,60 +620,73 @@ def main() -> None:
         _status[key] = "running"
         info(f"{svc['label']} avviato (PID {proc.pid})")
 
-        t = threading.Thread(target=_reader, args=(key, proc), daemon=True)
-        t.start()
-        threads.append(t)
+        if _debug:
+            t = threading.Thread(target=_reader, args=(key, proc), daemon=True)
+            t.start()
+            threads.append(t)
 
     if not _procs:
         err("Nessun servizio avviato. Controlla i prerequisiti.")
         sys.exit(1)
 
-    console.print()
+    _print()
     info("[bold green]Tutti i servizi avviati.[/bold green] Premi [bold]Ctrl+C[/bold] per fermare.")
-    console.print()
+    _print()
 
     # Apri il browser quando frontend E GraphHopper sono pronti
-    def _open_browser(wait_for_gh: bool) -> None:
-        fe_url = "http://localhost:5173"
-        gh_url = "http://localhost:8989/health"
+    failed_key: list[str] = []
 
-        # Attendi frontend
-        for _ in range(60):
+    def _wait(url: str, tries: int) -> bool:
+        for _ in range(tries):
             if _stop.is_set():
-                return
+                return False
             try:
-                urllib.request.urlopen(fe_url, timeout=1)
-                break
+                urllib.request.urlopen(url, timeout=1)
+                return True
             except Exception:
                 time.sleep(1)
-        else:
+        return False
+
+    def _open_browser() -> None:
+        fe_url = FE_URL
+
+        if not _wait(fe_url, 60):
+            if _stop.is_set():
+                return
             warn("Timeout: frontend non raggiunto, browser non aperto")
+            if not _debug:
+                _issues.append("Frontend did not respond within 60 seconds.")
+                failed_key.append("FE")
             return
 
-        # Attendi GraphHopper (max 5 min — al primo avvio post-setup è già cachato)
-        if wait_for_gh:
-            info("In attesa che GraphHopper sia pronto...")
-            for _ in range(150):  # 150 × 2s = 5 min
-                if _stop.is_set():
-                    return
-                try:
-                    urllib.request.urlopen(gh_url, timeout=2)
-                    break
-                except Exception:
-                    time.sleep(2)
-            else:
-                warn("Timeout GraphHopper — il routing potrebbe non funzionare ancora")
+        if "GH" in _procs and not _wait(SERVICES[0]["url"], 600):
+            if _stop.is_set():
+                return
+            warn("Timeout: GraphHopper non pronto")
+            if not _debug:
+                _issues.append("GraphHopper did not become ready within 10 minutes.")
+                failed_key.append("GH")
+            return
 
+        _startup_done.set()
         info(f"Browser aperto su [cyan]{fe_url}[/cyan]")
         webbrowser.open(fe_url)
 
-    threading.Thread(target=_open_browser, args=(not skip_gh,), daemon=True).start()
+    threading.Thread(target=_open_browser, daemon=True).start()
 
     # Attesa Ctrl+C o chiusura browser
     try:
         signal.signal(signal.SIGINT, lambda s, f: None)   # gestito da except
         while not _stop.is_set():
             # Controlla se tutti i processi sono morti
+            if not _debug and not _startup_done.is_set():
+                dead = [k for k, p in _procs.items() if p.poll() is not None]
+                if dead or failed_key:
+                    key = dead[0] if dead else failed_key[0]
+                    if dead:
+                        _issues.append(f"{key} exited during startup.")
+                    show_error_page("A service failed during startup.", key)
+                    break
             alive = [k for k, p in _procs.items() if p.poll() is None]
             if not alive:
                 err("Tutti i servizi si sono fermati.")
@@ -499,7 +703,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        shutdown()
+        shutdown(active_services)
 
 
 if __name__ == "__main__":

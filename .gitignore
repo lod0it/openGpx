@@ -51,3 +51,7 @@ graphhopper/elevation-cache/
 backend/.setup-state
 .board-worktrees/
 .claude/board/tasks.json.lock
+
+
+# Service logs (start.py)
+logs/

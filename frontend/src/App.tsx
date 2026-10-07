@@ -4,6 +4,7 @@ import { MapView } from './components/MapView/MapView'
 import { MapPanel } from './components/MapView/MapPanel'
 import { LanguageToggle } from './components/UI/LanguageToggle'
 import { UpdateButton } from './components/UI/UpdateButton'
+import { StartupScreen } from './components/StartupScreen/StartupScreen'
 import { useRouteCalculation } from './hooks/useRouteCalculation'
 import { useHeartbeat } from './hooks/useHeartbeat'
 import { useThemeStore } from './store/useThemeStore'
@@ -27,6 +28,7 @@ function App() {
       </div>
       <LanguageToggle />
       <UpdateButton />
+      <StartupScreen />
     </div>
   )
 }
